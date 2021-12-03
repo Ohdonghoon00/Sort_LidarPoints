@@ -55,7 +55,13 @@ namespace po = boost::program_options;
 
 const std::vector<float> imu2rig_pose = {-0.011773881878296,-2.212344247385963,2.229193892963689,-0.016975989407230,0.016444757006134,0.128779023189435};
 const std::vector<float> lidar2rig_pose = {1.5620435019860173, -0.005377623186353324, 0.003014408980859652, -8.458334129298635E-4, -0.19542397891778734, -0.0012719333618026098};
+static bool isBigEndian()
+{
+    volatile int num = 1;
+    return *((char*) &num) == ((char) 1);
+}
 
+static const bool IS_BIG_ENDIAN = isBigEndian();
 struct LidarData 
 {
 
@@ -78,6 +84,45 @@ struct LidarData
      
 
 };
+
+sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3f> PointCloud)
+{
+    struct point { float x, y, z; };
+
+    const size_t PointCloudNum = PointCloud.size();
+
+    std::vector<uint8_t> data_buffer(PointCloudNum * sizeof(point));
+    size_t idx = 0;
+
+    point *dataptr = (point*) data_buffer.data();
+
+    for(auto i : PointCloud){
+        dataptr[idx++] = {i(0), i(1), i(2)};
+    }
+
+    static const char* const names[3] = { "x", "y", "z" };
+    static const std::size_t offsets[3] = { offsetof(point, x), offsetof(point, y), offsetof(point, z) };
+    std::vector<sensor_msgs::PointField> fields(3);
+    for (int i=0; i < 3; i++) {
+        fields[i].name = names[i];
+        fields[i].offset = offsets[i];
+        fields[i].datatype = sensor_msgs::PointField::FLOAT32;
+        fields[i].count = 1;
+    }
+
+
+    sensor_msgs::PointCloud2 msg;
+    msg.height = 1;
+    msg.width = PointCloudNum;
+    msg.fields = fields;
+    msg.is_bigendian = IS_BIG_ENDIAN;
+    msg.point_step = sizeof(point);
+    msg.row_step = sizeof(point) * msg.width;
+    msg.data = std::move(data_buffer);
+    msg.is_dense = true;
+
+    return msg;
+}
 
 Eigen::Matrix4f To44RT(std::vector<float> rot)
 {
@@ -167,14 +212,14 @@ Eigen::Vector3f ToAxis(Eigen::Matrix4f LidarRotation)
 
 }
 
-void MoveDistortionPoints(pcl::PointCloud<pcl::PointXYZ> &points, Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
+void MoveDistortionPoints(std::vector<Eigen::Vector3f> &points, Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
 {
     int PointNum = points.size();
     Eigen::MatrixXf MatrixPoints(4, PointNum);
     for(int i = 0; i < PointNum; i++){
-        MatrixPoints(0, i) = points[i].x;
-        MatrixPoints(1, i) = points[i].y;
-        MatrixPoints(2, i) = points[i].z;
+        MatrixPoints(0, i) = points[i](0);
+        MatrixPoints(1, i) = points[i](1);
+        MatrixPoints(2, i) = points[i](2);
         MatrixPoints(3, i) = 1.0;
     }
     
@@ -198,10 +243,10 @@ void MoveDistortionPoints(pcl::PointCloud<pcl::PointXYZ> &points, Eigen::Matrix4
     Eigen::Matrix4Xf MatrixPoints_ = RT.inverse() * MatrixPoints;
     points.clear();
     for(int i = 0; i < PointNum; i++){
-        pcl::PointXYZ Point;
-        Point.x = MatrixPoints_(0, i);
-        Point.y = MatrixPoints_(1, i);
-        Point.z = MatrixPoints_(2, i);
+        Eigen::Vector3f Point;
+        Point(0) = MatrixPoints_(0, i);
+        Point(1) = MatrixPoints_(1, i);
+        Point(2) = MatrixPoints_(2, i);
         points.push_back(Point);
     }
 
@@ -360,10 +405,10 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }        
 
-        pcl::PointCloud<pcl::PointXYZ> PublishPoints;
-        const size_t kMaxNumberOfPoints = 1e6; 
-        PublishPoints.clear();
-        PublishPoints.reserve(kMaxNumberOfPoints);
+        std::vector<Eigen::Vector3f> PublishPoints;
+        // const size_t kMaxNumberOfPoints = 1e6; 
+        // PublishPoints.clear();
+        // PublishPoints.reserve(kMaxNumberOfPoints);
         
         
         std::cout << " File number : " << fidx << "     " << std::endl;
@@ -389,8 +434,8 @@ int main(int argc, char **argv)
 
         for (int j = 0; j < num_seqs; j++){
 
-            pcl::PointXYZ point;
-            pcl::PointCloud<pcl::PointXYZ> Points;
+            Eigen::Vector3f point;
+            std::vector<Eigen::Vector3f> Points;
             
             
             int& num_pts = lidar_data.num_points;
@@ -413,9 +458,9 @@ int main(int argc, char **argv)
 
             // save 3D points and intensity 
             for(int k = 0; k < num_pts * 3; k+=3){
-                point.x = *(lidar_data.points_ptr() + k);
-                point.y = *(lidar_data.points_ptr() + k + 1);
-                point.z = *(lidar_data.points_ptr() + k + 2);
+                point(0) = *(lidar_data.points_ptr() + k);
+                point(1) = *(lidar_data.points_ptr() + k + 1);
+                point(2) = *(lidar_data.points_ptr() + k + 2);
                 // point.intensity = (((float)*( lidar_data.intensities_ptr() + (k/3) ) ) / 255); // 0 ~ 1 , raw data : 0 ~ 254
                 Points.push_back(point);
             }
@@ -424,10 +469,10 @@ int main(int argc, char **argv)
             if(ToUndistortionPoints) MoveDistortionPoints(Points, LidarRotation, j, num_seqs);
 
             for(size_t i = 0; i < Points.size(); i ++){
-                pcl::PointXYZ NoDistortionPoint;
-                NoDistortionPoint.x = Points[i].x;
-                NoDistortionPoint.y = Points[i].y;
-                NoDistortionPoint.z = Points[i].z;
+                Eigen::Vector3f NoDistortionPoint;
+                NoDistortionPoint(0) = Points[i](0);
+                NoDistortionPoint(1) = Points[i](1);
+                NoDistortionPoint(2) = Points[i](2);
                     
                 PublishPoints.push_back(NoDistortionPoint);
             }        
@@ -443,7 +488,8 @@ int main(int argc, char **argv)
 
         // publish
         sensor_msgs::PointCloud2 output;
-        pcl::toROSMsg(PublishPoints, output);
+        // pcl::toROSMsg(PublishPoints, output);
+        output = ConverToROSmsg(PublishPoints);
         output.header.stamp = timestamp_ros;
         output.header.frame_id = "/camera_init";
         pubLaserCloud.publish(output);

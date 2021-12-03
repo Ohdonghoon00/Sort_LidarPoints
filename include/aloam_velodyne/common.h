@@ -42,6 +42,13 @@
 
 typedef pcl::PointXYZI PointType;
 
+// struct PointType {
+//   float x;
+//   float y;
+//   float z;
+//   float intensity;
+// };
+
 inline double rad2deg(double radians)
 {
   return radians * 180.0 / M_PI;
