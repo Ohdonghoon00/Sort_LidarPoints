@@ -134,7 +134,7 @@ void RemoveClosedPointCloud(std::vector<Eigen::Vector3f> &cloud_in,
     size_t j = 0;
     for (size_t i = 0; i < cloud_in.size(); ++i)
     {
-        if (cloud_in[i](0) * cloud_in[i](0) + cloud_in[i](1) * cloud_in[i](1) + cloud_in[i](2) * cloud_in[i](2) < thres * thres)
+        if (cloud_in[i].x() * cloud_in[i].x() + cloud_in[i].y() * cloud_in[i].y() + cloud_in[i].z() * cloud_in[i].z() < thres * thres)
             continue;
         cloud_out[j] = cloud_in[i];
         j++;
@@ -155,16 +155,16 @@ void RemoveNaNFromPointCloud(std::vector<Eigen::Vector3f> &cloud_in,
     // Remove Nan, Inf
     for(size_t i = 0; i < cloud_in.size(); i++){
         
-        bool is_nan_x = isnan(cloud_in[i](0));
-        bool is_nan_y = isnan(cloud_in[i](1));
-        bool is_nan_z = isnan(cloud_in[i](2));
+        bool is_nan_x = isnan(cloud_in[i].x());
+        bool is_nan_y = isnan(cloud_in[i].y());
+        bool is_nan_z = isnan(cloud_in[i].z());
 
         if(is_nan_x || is_nan_y || is_nan_z)
             continue;
         
-        bool is_inf_x = isinf(cloud_in[i](0));
-        bool is_inf_y = isinf(cloud_in[i](1));
-        bool is_inf_z = isinf(cloud_in[i](2));
+        bool is_inf_x = isinf(cloud_in[i].x());
+        bool is_inf_y = isinf(cloud_in[i].y());
+        bool is_inf_z = isinf(cloud_in[i].z());
         
         if(is_inf_x || is_inf_y || is_inf_z)
             continue;
@@ -185,9 +185,9 @@ void RemoveNaNFromPointCloud(std::vector<Eigen::Vector3f> &cloud_in,
 
 
 
-sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3f> PointCloud)
+sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3d> PointCloud)
 {
-    struct point { float x, y, z; };
+    struct point { double x, y, z; };
 
     const size_t PointCloudNum = PointCloud.size();
 
@@ -206,7 +206,7 @@ sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3f> PointCloud)
     for (int i=0; i < 3; i++) {
         fields[i].name = names[i];
         fields[i].offset = offsets[i];
-        fields[i].datatype = sensor_msgs::PointField::FLOAT32;
+        fields[i].datatype = sensor_msgs::PointField::FLOAT64;
         fields[i].count = 1;
     }
 
@@ -241,34 +241,38 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     TicToc t_prepare;
     std::vector<int> scanStartInd(N_SCANS, 0);
     std::vector<int> scanEndInd(N_SCANS, 0);
-
     std::vector<Eigen::Vector3f> laserPoints;
+    laserPoints.clear();
     // pcl::PointCloud<pcl::PointXYZ> laserCloudIn;
-    pcl::fromROSMsg(*laserCloudMsg, laserCloudIn);
+    // pcl::fromROSMsg(*laserCloudMsg, laserCloudIn);
     // std::vector<int> indices;
 
-    laserPoints.clear();
-    for(size_t i = 0; i < laserCloudMsg->data.size(); i++){
+    uint8_t* byte = const_cast<uint8_t*>(&laserCloudMsg->data[0]);
+    float* floatByte = reinterpret_cast<float*>(byte);
+    int pointcloudNum = laserCloudMsg->data.size() / (sizeof(float) * 3);
+    laserPoints.resize(pointcloudNum);
+
+    for(int i = 0; i < pointcloudNum; i++){
         
-        laserPoints.resize(laserCloudMsg->data.size());
-        // laserPoints[i](0) = laserCloudMsg->data[i][0];
-        // laserPoints[i](1) = laserCloudIn.points[i].y;
-        // laserPoints[i](2) = laserCloudIn.points[i].z;
+        laserPoints[i].x() = floatByte[3 * i];
+        laserPoints[i].y() = floatByte[3 * i + 1];
+        laserPoints[i].z() = floatByte[3 * i + 2];
     }
-    // std::cout << (float)laserCloudMsg->data[0] << std::endl;
     
     // pcl::removeNaNFromPointCloud(laserCloudIn, laserCloudIn, indices);
     // removeClosedPointCloud(laserCloudIn, laserCloudIn, MINIMUM_RANGE);
 
+// std::cout << "laserpoint size : " << laserCloudIn.points.size() << std::endl;
+
     RemoveNaNFromPointCloud(laserPoints, laserPoints);
     RemoveClosedPointCloud(laserPoints, laserPoints, MINIMUM_RANGE);
 
-// std::cout << "testpoint size :  " << laserPoints.size() << "laserpoint size : " << laserCloudIn.points.size() << std::endl;
+std::cout << "testpoint size :  " << laserPoints.size() << std::endl; 
 
     int cloudSize = laserPoints.size();
-    float startOri = -atan2(laserPoints[0](1), laserPoints[0](0));
-    float endOri = -atan2(laserPoints[cloudSize - 1](1),
-                          laserPoints[cloudSize - 1](0)) +
+    float startOri = -atan2(laserPoints[0].y(), laserPoints[0].x());
+    float endOri = -atan2(laserPoints[cloudSize - 1].y(),
+                          laserPoints[cloudSize - 1].x()) +
                    2 * M_PI;
 
     if (endOri - startOri > 3 * M_PI)
@@ -284,23 +288,23 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     bool halfPassed = false;
     int count = cloudSize;
     // PointType point;
-    Eigen::Vector3f point;
+    Eigen::Vector3d point;
 
     // Visual remove points
     // pcl::PointCloud<PointType> removePoints;
     // PointType removePoint;
     
     // std::vector<pcl::PointCloud<PointType>> laserCloudScans(N_SCANS);
-    std::vector<std::vector<Eigen::Vector3f>> laserCloudScans(N_SCANS);
+    std::vector<Eigen::Matrix3Xd> laserCloudScans(N_SCANS);
 
     
     std::vector<float> Verticalangles;
     for(int i = 0; i < cloudSize; i++){
         
-        point(0) = laserPoints[i](0);
-        point(1) = laserPoints[i](1);
-        point(2) = laserPoints[i](2);        
-        float angle = atan(point(2) / sqrt(point(0) * point(0) + point(1) * point(1))) * 180 / M_PI;
+        point.x() = laserPoints[i].x();
+        point.y() = laserPoints[i].y();
+        point.z() = laserPoints[i].z();        
+        float angle = atan(point.z() / sqrt(point.x() * point.x() + point.y() * point.y())) * 180 / M_PI;
         Verticalangles.push_back(angle);
     }
     
@@ -311,13 +315,13 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // removePoints.clear();
     for (int i = 0; i < cloudSize; i++)
     {
-        point(0) = laserPoints[i](0);
-        point(1) = laserPoints[i](1);
-        point(2) = laserPoints[i](2);
+        point.x() = (double)laserPoints[i].x();
+        point.y() = (double)laserPoints[i].y();
+        point.z() = (double)laserPoints[i].z();
         
 
 
-        float angle = atan(point(2) / sqrt(point(0) * point(0) + point(1) * point(1))) * 180 / M_PI;
+        float angle = atan(point.z() / sqrt(point.x() * point.x() + point.y() * point.y())) * 180 / M_PI;
         int scanID = 0;
         for(int j = 0; j < N_SCANS; j++){
             if(angle < MinAngle + Ratio * (j + 1)){
@@ -382,7 +386,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         ////printf("angle %f scanID %d \n", angle, scanID);
         // std::cout << " gt : " << scanID << "  Estimate : " << scanID_ << std::endl;
 
-        float ori = -atan2(point(1), point(0));
+        float ori = -atan2(point.y(), point.x());
         if (!halfPassed)
         { 
             if (ori < startOri - M_PI / 2)
@@ -414,7 +418,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
         float relTime = (ori - startOri) / (endOri - startOri);
         // point.intensity = scanID + scanPeriod * relTime;
-        laserCloudScans[scanID].push_back(point); 
+        // laserCloudScans[scanID].push_back(point); 
     }
     
     cloudSize = count;
@@ -422,13 +426,18 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // pcl::PointCloud<PointType>::Ptr laserCloud(new pcl::PointCloud<PointType>());
     // boost::shared_ptr<std::vector<Eigen::Vector3f>> laserCloud(new std::vector<Eigen::Vector3f>());
-    std::vector<Eigen::Vector3f> laserCloud;
-
+    std::vector<Eigen::Vector3d> laserCloud;
+    laserCloud.resize(cloudSize);
+    int idx = 0;
     for (int i = 0; i < N_SCANS; i++)
     { 
         scanStartInd[i] = laserCloud.size() + 5;
-        for(size_t j = 0; j < laserCloudScans[i].size(); j++)
-            laserCloud.push_back(laserCloudScans[i][j]);
+        for(size_t j = 0; j < laserCloudScans[i].size(); j++){
+            laserCloud[idx++].x() = laserCloudScans[i](0, j);
+            laserCloud[idx++].y() = laserCloudScans[i](1, j);
+            laserCloud[idx++].z() = laserCloudScans[i](2, j);
+
+        }
         scanEndInd[i] = laserCloud.size() - 6;
         // std::cout << " start index : " << scanStartInd[i] << " end index : " << scanEndInd[i] << std::endl;
     }
