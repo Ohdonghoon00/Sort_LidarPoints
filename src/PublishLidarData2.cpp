@@ -85,7 +85,7 @@ struct LidarData
 
 };
 
-sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3f> PointCloud)
+sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3d> PointCloud)
 {
     struct point { float x, y, z; };
 
@@ -97,7 +97,7 @@ sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3f> PointCloud)
     point *dataptr = (point*) data_buffer.data();
 
     for(auto i : PointCloud){
-        dataptr[idx++] = {i(0), i(1), i(2)};
+        dataptr[idx++] = {(float)i(0), (float)i(1), (float)i(2)};
     }
 
     static const char* const names[3] = { "x", "y", "z" };
@@ -212,14 +212,14 @@ Eigen::Vector3f ToAxis(Eigen::Matrix4f LidarRotation)
 
 }
 
-void MoveDistortionPoints(std::vector<Eigen::Vector3f> &points, Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
+void MoveDistortionPoints(std::vector<Eigen::Vector3d> &points, Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
 {
     int PointNum = points.size();
-    Eigen::MatrixXf MatrixPoints(4, PointNum);
+    Eigen::MatrixXd MatrixPoints(4, PointNum);
     for(int i = 0; i < PointNum; i++){
-        MatrixPoints(0, i) = points[i](0);
-        MatrixPoints(1, i) = points[i](1);
-        MatrixPoints(2, i) = points[i](2);
+        MatrixPoints(0, i) = points[i].x();
+        MatrixPoints(1, i) = points[i].y();
+        MatrixPoints(2, i) = points[i].z();
         MatrixPoints(3, i) = 1.0;
     }
     
@@ -227,26 +227,26 @@ void MoveDistortionPoints(std::vector<Eigen::Vector3f> &points, Eigen::Matrix4f 
     Eigen::Vector3f Axis = ToAxis(LidarRotation);
     
     float AngleRatio = (((float)(ScanStepNum + 1) / (float)num_seqs) * angle);
-    Axis = Axis * AngleRatio;
+    Axis = (Axis * AngleRatio);
     
-    float data[] = {Axis(0, 0), Axis(1, 0), Axis(2, 0)};
-    cv::Mat R(3, 1, CV_32FC1, data);
+    double data[] = {(double)Axis(0, 0), (double)Axis(1, 0), (double)Axis(2, 0)};
+    cv::Mat R(3, 1, CV_64FC1, data);
     cv::Rodrigues(R, R);
 
-    Eigen::Matrix4f RT;
-    RT <<   R.at<float>(0, 0), R.at<float>(0, 1), R.at<float>(0, 2), 0,
-            R.at<float>(1, 0), R.at<float>(1, 1), R.at<float>(1, 2), 0,
-            R.at<float>(2, 0), R.at<float>(2, 1), R.at<float>(2, 2), 0,
+    Eigen::Matrix4d RT;
+    RT <<   R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), 0,
+            R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), 0,
+            R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), 0,
             0,                  0,                  0,              1;
 
 
-    Eigen::Matrix4Xf MatrixPoints_ = RT.inverse() * MatrixPoints;
+    Eigen::Matrix4Xd MatrixPoints_ = RT.inverse() * MatrixPoints;
     points.clear();
     for(int i = 0; i < PointNum; i++){
-        Eigen::Vector3f Point;
-        Point(0) = MatrixPoints_(0, i);
-        Point(1) = MatrixPoints_(1, i);
-        Point(2) = MatrixPoints_(2, i);
+        Eigen::Vector3d Point;
+        Point.x() = MatrixPoints_(0, i);
+        Point.y() = MatrixPoints_(1, i);
+        Point.z() = MatrixPoints_(2, i);
         points.push_back(Point);
     }
 
@@ -405,7 +405,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }        
 
-        std::vector<Eigen::Vector3f> PublishPoints;
+        std::vector<Eigen::Vector3d> PublishPoints;
         // const size_t kMaxNumberOfPoints = 1e6; 
         // PublishPoints.clear();
         // PublishPoints.reserve(kMaxNumberOfPoints);
@@ -434,8 +434,8 @@ int main(int argc, char **argv)
 
         for (int j = 0; j < num_seqs; j++){
 
-            Eigen::Vector3f point;
-            std::vector<Eigen::Vector3f> Points;
+            Eigen::Vector3d point;
+            std::vector<Eigen::Vector3d> Points;
             
             
             int& num_pts = lidar_data.num_points;
@@ -458,9 +458,9 @@ int main(int argc, char **argv)
 
             // save 3D points and intensity 
             for(int k = 0; k < num_pts * 3; k+=3){
-                point(0) = *(lidar_data.points_ptr() + k);
-                point(1) = *(lidar_data.points_ptr() + k + 1);
-                point(2) = *(lidar_data.points_ptr() + k + 2);
+                point.x() = (double)*(lidar_data.points_ptr() + k);
+                point.y() = (double)*(lidar_data.points_ptr() + k + 1);
+                point.z() = (double)*(lidar_data.points_ptr() + k + 2);
                 // point.intensity = (((float)*( lidar_data.intensities_ptr() + (k/3) ) ) / 255); // 0 ~ 1 , raw data : 0 ~ 254
                 Points.push_back(point);
             }
@@ -469,10 +469,10 @@ int main(int argc, char **argv)
             if(ToUndistortionPoints) MoveDistortionPoints(Points, LidarRotation, j, num_seqs);
 
             for(size_t i = 0; i < Points.size(); i ++){
-                Eigen::Vector3f NoDistortionPoint;
-                NoDistortionPoint(0) = Points[i](0);
-                NoDistortionPoint(1) = Points[i](1);
-                NoDistortionPoint(2) = Points[i](2);
+                Eigen::Vector3d NoDistortionPoint;
+                NoDistortionPoint.x() = Points[i].x();
+                NoDistortionPoint.y() = Points[i].y();
+                NoDistortionPoint.z() = Points[i].z();
                     
                 PublishPoints.push_back(NoDistortionPoint);
             }        
@@ -501,7 +501,6 @@ int main(int argc, char **argv)
         Lidarline_num++;
         r.sleep();
         ifs.close();   
-        std::cout << "ab" << std::endl;
     }
 
     LidarcsvFile.close();
