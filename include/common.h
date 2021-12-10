@@ -42,33 +42,6 @@
 #include <Eigen/Dense>
 #include <pcl/point_types.h>
 
-// typedef pcl::PointXYZI PointType;
-
-// struct PointType {
-//   float x;
-//   float y;
-//   float z;
-//   float intensity;
-// };
-
-inline double rad2deg(double radians)
-{
-  return radians * 180.0 / M_PI;
-}
-
-inline double deg2rad(double degrees)
-{
-  return degrees * M_PI / 180.0;
-}
-
-struct Pose6D {
-  double x;
-  double y;
-  double z;
-  double roll;
-  double pitch;
-  double yaw;
-};
 
 double PointDistance(Eigen::Vector3d p){
   return sqrt(p.x()*p.x() + p.y()*p.y() + p.z()*p.z());

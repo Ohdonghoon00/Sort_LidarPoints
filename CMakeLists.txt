@@ -19,24 +19,24 @@ find_package(catkin REQUIRED COMPONENTS
   tf
 )
 find_package( Boost REQUIRED COMPONENTS 
+timer )
  
 
-timer )
 #find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
 
-find_package(OpenMP REQUIRED)
-find_package(GTSAM REQUIRED QUIET)
+# find_package(OpenMP REQUIRED)
+# find_package(GTSAM REQUIRED QUIET)
 
 include_directories(
   include
 	${catkin_INCLUDE_DIRS} 
 	${PCL_INCLUDE_DIRS}
-  ${CERES_INCLUDE_DIRS}
+  # ${CERES_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
-  ${GTSAM_INCLUDE_DIR}
+  # ${GTSAM_INCLUDE_DIR}
   ${Boost_INCLUDE_DIRS}
 )
 
@@ -49,26 +49,6 @@ catkin_package(
 
 add_executable(ascanRegistration src/scanRegistration.cpp)
 target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
-
-# add_executable(alaserOdometry src/laserOdometry.cpp)
-# target_link_libraries(alaserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
-
-# add_executable(alaserMapping src/laserMapping.cpp)
-# target_link_libraries(alaserMapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
-
-# add_executable(alaserPGO 
-#   src/laserPosegraphOptimization.cpp
-#   include/scancontext/Scancontext.cpp
-# )
-# target_compile_options(alaserPGO 
-#   PRIVATE ${OpenMP_CXX_FLAGS}
-# )
-# target_link_libraries(alaserPGO 
-#   ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES}
-#   ${OpenMP_CXX_FLAGS} ${OpenCV_LIBS}
-#   gtsam
-# )
-
 
 add_executable(PublishLidarData2 src/PublishLidarData2.cpp)
 target_link_libraries(PublishLidarData2 glog ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
