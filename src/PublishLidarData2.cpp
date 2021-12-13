@@ -8,28 +8,28 @@
 #include <algorithm>
 #include <chrono>
 #include <sstream>
- 
+#include "common.h"
 #include <boost/program_options.hpp>
-#include <pcl/point_types.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/conversions.h>
-#include <pcl/common/point_operators.h>
-#include <pcl/common/io.h>
-#include <pcl/search/organized.h>
-#include <pcl/search/octree.h>
-#include <pcl/search/kdtree.h>
-#include <pcl/features/normal_3d_omp.h>
-#include <pcl/filters/conditional_removal.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/surface/gp3.h>
-#include <pcl/io/vtk_io.h>
-#include <pcl/filters/voxel_grid.h>
-#include<pcl_conversions/pcl_conversions.h>
-#include<pcl/io/pcd_io.h>
+// #include <pcl/point_types.h>
+// #include <pcl/io/pcd_io.h>
+// #include <pcl/conversions.h>
+// #include <pcl/common/point_operators.h>
+// #include <pcl/common/io.h>
+// #include <pcl/search/organized.h>
+// #include <pcl/search/octree.h>
+// #include <pcl/search/kdtree.h>
+// #include <pcl/features/normal_3d_omp.h>
+// #include <pcl/filters/conditional_removal.h>
+// #include <pcl/segmentation/sac_segmentation.h>
+// #include <pcl/segmentation/extract_clusters.h>
+// #include <pcl/surface/gp3.h>
+// #include <pcl/io/vtk_io.h>
+// #include <pcl/filters/voxel_grid.h>
+// #include<pcl_conversions/pcl_conversions.h>
+// #include<pcl/io/pcd_io.h>
 
-#include <ros/ros.h>
-#include <sensor_msgs/PointCloud2.h>
+// #include <ros/ros.h>
+// #include <sensor_msgs/PointCloud2.h>
 #include <rosbag/bag.h>
 
 #include <opencv2/highgui/highgui.hpp>
@@ -48,20 +48,13 @@
 ros::Publisher pubLaserCloud;
 
 
-using namespace pcl;
 using namespace std;
 
 namespace po = boost::program_options;
 
 const std::vector<float> imu2rig_pose = {-0.011773881878296,-2.212344247385963,2.229193892963689,-0.016975989407230,0.016444757006134,0.128779023189435};
 const std::vector<float> lidar2rig_pose = {1.5620435019860173, -0.005377623186353324, 0.003014408980859652, -8.458334129298635E-4, -0.19542397891778734, -0.0012719333618026098};
-static bool isBigEndian()
-{
-    volatile int num = 1;
-    return *((char*) &num) == ((char) 1);
-}
 
-static const bool IS_BIG_ENDIAN = isBigEndian();
 struct LidarData 
 {
 
@@ -84,45 +77,6 @@ struct LidarData
      
 
 };
-
-sensor_msgs::PointCloud2 ConverToROSmsg(std::vector<Eigen::Vector3d> PointCloud)
-{
-    struct point { float x, y, z; };
-
-    const size_t PointCloudNum = PointCloud.size();
-
-    std::vector<uint8_t> data_buffer(PointCloudNum * sizeof(point));
-    size_t idx = 0;
-
-    point *dataptr = (point*) data_buffer.data();
-
-    for(auto i : PointCloud){
-        dataptr[idx++] = {(float)i(0), (float)i(1), (float)i(2)};
-    }
-
-    static const char* const names[3] = { "x", "y", "z" };
-    static const std::size_t offsets[3] = { offsetof(point, x), offsetof(point, y), offsetof(point, z) };
-    std::vector<sensor_msgs::PointField> fields(3);
-    for (int i=0; i < 3; i++) {
-        fields[i].name = names[i];
-        fields[i].offset = offsets[i];
-        fields[i].datatype = sensor_msgs::PointField::FLOAT32;
-        fields[i].count = 1;
-    }
-
-
-    sensor_msgs::PointCloud2 msg;
-    msg.height = 1;
-    msg.width = PointCloudNum;
-    msg.fields = fields;
-    msg.is_bigendian = IS_BIG_ENDIAN;
-    msg.point_step = sizeof(point);
-    msg.row_step = sizeof(point) * msg.width;
-    msg.data = std::move(data_buffer);
-    msg.is_dense = true;
-
-    return msg;
-}
 
 Eigen::Matrix4f To44RT(std::vector<float> rot)
 {

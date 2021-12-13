@@ -40,8 +40,81 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
-#include <pcl/point_types.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <ros/ros.h>
 
+// #include <pcl/point_types.h>
+
+sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
+
+void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
+{
+    sensor_msgs::PointCloud2 pubmsg;
+    pubmsg = ConverToROSmsg(pointclouds);
+    pubmsg.header.stamp = timestamp;
+    pubmsg.header.frame_id = frameid;
+    publisher.publish(pubmsg);    
+}
+
+sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud)
+{
+    struct point { float x, y, z; };
+    const size_t PointCloudNum = PointCloud.size();
+
+    std::vector<uint8_t> data_buffer(PointCloudNum * sizeof(point));
+    size_t idx = 0;
+
+    point *dataptr = (point*) data_buffer.data();
+
+    for(auto i : PointCloud){
+        dataptr[idx++] = {(float)i(0), (float)i(1), (float)i(2)};
+    }
+
+    static const char* const names[3] = { "x", "y", "z" };
+    static const std::size_t offsets[3] = { offsetof(point, x), offsetof(point, y), offsetof(point, z) };
+    std::vector<sensor_msgs::PointField> fields(3);
+    for (int i=0; i < 3; i++) {
+        fields[i].name = names[i];
+        fields[i].offset = offsets[i];
+        fields[i].datatype = sensor_msgs::PointField::FLOAT32;
+        fields[i].count = 1;
+    }
+
+
+    sensor_msgs::PointCloud2 msg;
+    msg.height = 1;
+    msg.width = PointCloudNum;
+    msg.fields = fields;
+    msg.is_bigendian = true;
+    msg.point_step = sizeof(point);
+    msg.row_step = sizeof(point) * msg.width;
+    msg.data = std::move(data_buffer);
+    msg.is_dense = true;
+
+    return msg;
+}
+
+std::vector<Eigen::Vector3d> ConvertFromROSmsg(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
+{
+    std::vector<Eigen::Vector3d> laserPoints;
+    uint8_t* byte = const_cast<uint8_t*>(&laserCloudMsg->data[0]);
+    float* floatByte = reinterpret_cast<float*>(byte);
+    int pointcloudNum = laserCloudMsg->data.size() / (sizeof(float) * 3);
+    laserPoints.resize(pointcloudNum);
+
+    for(int i = 0; i < pointcloudNum; i++){
+        
+        laserPoints[i].x() = (double)floatByte[3 * i];
+        laserPoints[i].y() = (double)floatByte[3 * i + 1];
+        laserPoints[i].z() = (double)floatByte[3 * i + 2];
+    }
+
+    return laserPoints;
+}
+
+float VerticalAngle(Eigen::Vector3d p){
+  return atan(p.z() / sqrt(p.x() * p.x() + p.y() * p.y())) * 180 / M_PI;
+}
 
 double PointDistance(Eigen::Vector3d p){
   return sqrt(p.x()*p.x() + p.y()*p.y() + p.z()*p.z());

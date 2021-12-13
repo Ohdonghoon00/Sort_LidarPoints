@@ -22,21 +22,17 @@ find_package( Boost REQUIRED COMPONENTS
 timer )
  
 
-#find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
 
-# find_package(OpenMP REQUIRED)
-# find_package(GTSAM REQUIRED QUIET)
+
 
 include_directories(
   include
 	${catkin_INCLUDE_DIRS} 
 	${PCL_INCLUDE_DIRS}
-  # ${CERES_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
-  # ${GTSAM_INCLUDE_DIR}
   ${Boost_INCLUDE_DIRS}
 )
 
