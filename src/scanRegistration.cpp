@@ -72,12 +72,16 @@ std::vector<std::vector<int>> PointIndexByChannel; // ( edge → 0 , plane → 1
 
 bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
 
+// publish pointcloud
 ros::Publisher pubLaserCloud;
 ros::Publisher pubCornerPointsSharp;
 ros::Publisher pubCornerPointsLessSharp;
 ros::Publisher pubSurfPointsFlat;
 ros::Publisher pubSurfPointsLessFlat;
 ros::Publisher pubTestPoints;
+
+// publish line
+ros::Publisher pubLine;
 
 const size_t kMaxNumberOfPoints = 1e5;
 double MINIMUM_RANGE = 1.0;
@@ -273,8 +277,10 @@ void MarkOccludedPoints(const std::vector<Eigen::Vector3d>& laserCloud,
         // occluded points
         double depth1 = PointRange[i];
         double depth2 = PointRange[i + 1];
-        double Diff = PointDistance(laserCloud[i + 1], laserCloud[i]);
-        if (Diff * Diff < 0.05){
+        // double Diff = PointDistance(laserCloud[i + 1], laserCloud[i]);
+        double Diff = std::abs(laserCloud[i + 1].x() - laserCloud[i].x());
+
+        if (Diff * Diff< 0.05){
             if (depth1 - depth2 > 0.3){
                 occluded_cnt++;
                 cloudNeighborPicked[i - 5] = 1;
@@ -516,7 +522,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     std::cout << "surfPointsFlat num : " << surfPointsFlat.size() << std::endl;
     std::cout << "surfPointsLessFlat num : " << surfPointsLessFlat.size() << std::endl;
     
-    // test points 
+    // test points
+    std::vector<std::vector<Eigen::Vector3d>> linetests(10); 
     std::vector<Eigen::Vector3d> testpoints;
     Eigen::Vector3d ReferencePoint;
     int ChannelPass = 1;
@@ -524,6 +531,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         if(i == 0){
             ReferencePoint = CornerPointByChannel[i][0];
             testpoints.push_back(ReferencePoint);
+            linetests[0].push_back(ReferencePoint);
             continue;
         }
         
@@ -547,6 +555,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         Eigen::Vector3d testpoint;
         testpoint << CornerPointByChannel[i][Minidx];
         testpoints.push_back(testpoint);
+        linetests[0].push_back(testpoint);
         ChannelPass = 1;
     }
     
@@ -558,6 +567,9 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubCornerPointsLessSharp, cornerPointsLessSharp, laserCloudMsg->header.stamp, LidarFrame);
     PublishPointCloud(pubSurfPointsFlat, surfPointsFlat, laserCloudMsg->header.stamp, LidarFrame);
     PublishPointCloud(pubSurfPointsLessFlat, surfPointsLessFlat, laserCloudMsg->header.stamp, LidarFrame);
+
+    // Publish Line
+    PublishLine(pubLine, linetests, laserCloudMsg->header.stamp, LidarFrame);
 
     // pub testpoints
     PublishPointCloud(pubTestPoints, testpoints, laserCloudMsg->header.stamp, LidarFrame);
@@ -595,6 +607,8 @@ int main(int argc, char **argv)
     pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100);
 
     pubTestPoints = nh.advertise<sensor_msgs::PointCloud2>("/testpoints", 100);
+    
+    pubLine = nh.advertise<visualization_msgs::Marker>("/line", 100);
 
     ros::spin();
 

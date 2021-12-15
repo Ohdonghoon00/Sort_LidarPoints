@@ -41,11 +41,14 @@
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 #include <sensor_msgs/PointCloud2.h>
+#include <visualization_msgs/Marker.h>
 #include <ros/ros.h>
 
 // #include <pcl/point_types.h>
 
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
+visualization_msgs::Marker ConverToROSmsg(const std::vector<std::vector<Eigen::Vector3d>> &Line);
+
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
 {
@@ -55,6 +58,19 @@ void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen:
     pubmsg.header.frame_id = frameid;
     publisher.publish(pubmsg);    
 }
+
+void PublishLine(const ros::Publisher &publisher, const std::vector<std::vector<Eigen::Vector3d>> &Line, const ros::Time &timestamp, const std::string &frameid)
+{
+    visualization_msgs::Marker pubmsg;
+    std::cout << "abc" << std::endl;
+    pubmsg = ConverToROSmsg(Line);
+        std::cout << "abcd" << std::endl;
+
+    pubmsg.header.stamp = timestamp;
+    pubmsg.header.frame_id = frameid;
+    publisher.publish(pubmsg);    
+}
+
 
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud)
 {
@@ -92,6 +108,32 @@ sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &Poin
     msg.is_dense = true;
 
     return msg;
+}
+
+visualization_msgs::Marker ConverToROSmsg(const std::vector<std::vector<Eigen::Vector3d>> &Line)
+{
+    visualization_msgs::Marker msg;
+    msg.type = visualization_msgs::Marker::LINE_LIST;
+    msg.scale.x = 0.1;
+    msg.color.r = 1.0;
+    msg.color.a = 1.0;
+    std::cout << "abc" << std::endl;
+
+    for(size_t i = 0; i < 1; i++){
+        for(size_t j = 0; j < 2; j++){
+            
+            geometry_msgs::Point p;
+            p.x = Line[i][j].x();
+            p.y = Line[i][j].y();
+            p.z = Line[i][j].z();
+            msg.points.push_back(p);
+    std::cout << "abc" << std::endl;
+
+        }
+    }
+
+
+  return msg;
 }
 
 std::vector<Eigen::Vector3d> ConvertFromROSmsg(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
