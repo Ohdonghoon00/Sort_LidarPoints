@@ -68,8 +68,7 @@ std::vector<Eigen::Vector3d> surfPointsLessFlat;
 std::vector<int> FeatureNumByScan(N_SCANS);
 std::vector<std::vector<int>> PointIndexByChannel; // ( edge → 0 , plane → 1 , pass point → -1, occluded/parallel → -2 )
 
-// test
-std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel; 
+ 
 
 bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
 
@@ -81,7 +80,7 @@ ros::Publisher pubSurfPointsLessFlat;
 ros::Publisher pubTestPoints;
 
 const size_t kMaxNumberOfPoints = 1e5;
-double MINIMUM_RANGE = 0.1;
+double MINIMUM_RANGE = 1.0;
 std::string LidarFrame = "/camera_init"; 
 
 void RemoveClosedPointCloud(std::vector<Eigen::Vector3d> *pointcloud)
@@ -210,8 +209,7 @@ void DividePointsByChannel( const std::vector<Eigen::Vector3d>& laserPoints,
     // resize             
     for(int i = 0; i < N_SCANS; i++)
         (*laserCloudScans)[i].conservativeResize(3, PointNumByScanID[i]);
-    // test
-    CornerPointByChannel.resize(N_SCANS);
+    
     
     PointIndexByChannel.resize(N_SCANS);
     FeatureNumByScan.clear();
@@ -312,7 +310,7 @@ void MarkOccludedPoints(const std::vector<Eigen::Vector3d>& laserCloud,
 
 }
 
-void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud)
+void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, std::vector<std::vector<Eigen::Vector3d>> *CornerPointByChannel)
 {
 
     cornerPointsSharp.clear();
@@ -320,7 +318,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud)
     surfPointsFlat.clear();
     surfPointsLessFlat.clear();    
     //test
-    CornerPointByChannel.clear();
+    // CornerPointByChannel.clear();
     
     // Edge Points and Plane Points
     for (int i = 0; i < N_SCANS; i++)
@@ -352,7 +350,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud)
                         PointIndexByChannel[i][indbyscan] = 0;
 
                         // test
-                        CornerPointByChannel[i].push_back(laserCloud[ind]);
+                        (*CornerPointByChannel)[i].push_back(laserCloud[ind]);
                         
             
                     }
@@ -363,7 +361,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud)
                         PointIndexByChannel[i][indbyscan] = 0;
 
                         // test
-                        CornerPointByChannel[i].push_back(laserCloud[ind]);
+                        (*CornerPointByChannel)[i].push_back(laserCloud[ind]);
 
                     }
                     else
@@ -504,8 +502,12 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     CalculateCurvature(PointRange);
     MarkOccludedPoints(laserCloud, PointRange);
     
+
+    // test
+    std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel;
+    CornerPointByChannel.resize(N_SCANS);
     // sort Lidar points to edge and plane
-    DividePointsByEdgeAndPlane(laserCloud);
+    DividePointsByEdgeAndPlane(laserCloud, &CornerPointByChannel);
         
     // print edge and plane num
     std::cout << "Total laserCloud num : " << laserCloud.size() << std::endl;
@@ -517,9 +519,10 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // test points 
     std::vector<Eigen::Vector3d> testpoints;
     Eigen::Vector3d ReferencePoint;
+    int ChannelPass = 1;
     for(size_t i = 0 ; i < CornerPointByChannel.size(); i ++){
         if(i == 0){
-            ReferencePoint << CornerPointByChannel[i][10];
+            ReferencePoint = CornerPointByChannel[i][0];
             testpoints.push_back(ReferencePoint);
             continue;
         }
@@ -527,17 +530,24 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         double MinDist = 10;
         int Minidx = 0;
         if(CornerPointByChannel[i].size() == 0) continue;
-        for(int j = 0; j < CornerPointByChannel[i].size(); j ++){
+        for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
             double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
             if(MinDist > dist * dist){
                 MinDist = dist * dist;
                 Minidx = j;
             }
         }
-        // if(MinDist > 0.1) break;
+        if(MinDist > 0.05 * ChannelPass){
+            ChannelPass++;
+            continue;
+        } 
+            
+
+        ReferencePoint = CornerPointByChannel[i][Minidx];
         Eigen::Vector3d testpoint;
         testpoint << CornerPointByChannel[i][Minidx];
         testpoints.push_back(testpoint);
+        ChannelPass = 1;
     }
     
             
