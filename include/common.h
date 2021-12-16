@@ -42,12 +42,21 @@
 #include <Eigen/Dense>
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <ros/ros.h>
 
 // #include <pcl/point_types.h>
 
+struct Line;
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
-visualization_msgs::Marker ConverToROSmsg(const std::vector<std::vector<Eigen::Vector3d>> &Line);
+visualization_msgs::MarkerArray ConverToROSmsg(const std::vector<Line> &line, const ros::Time &timestamp, const std::string &frameid);
+
+struct Line
+{
+    Eigen::Vector3d p1;
+    Eigen::Vector3d p2;
+    // Eigen::Vector3d vec = p2 - p1;
+};
 
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
@@ -59,15 +68,13 @@ void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen:
     publisher.publish(pubmsg);    
 }
 
-void PublishLine(const ros::Publisher &publisher, const std::vector<std::vector<Eigen::Vector3d>> &Line, const ros::Time &timestamp, const std::string &frameid)
+void PublishLine(const ros::Publisher &publisher, const std::vector<Line> &line, const ros::Time &timestamp, const std::string &frameid)
 {
-    visualization_msgs::Marker pubmsg;
-    std::cout << "abc" << std::endl;
-    pubmsg = ConverToROSmsg(Line);
-        std::cout << "abcd" << std::endl;
+    visualization_msgs::MarkerArray pubmsg;
+    pubmsg = ConverToROSmsg(line, timestamp, frameid);
 
-    pubmsg.header.stamp = timestamp;
-    pubmsg.header.frame_id = frameid;
+    // pubmsg.header.stamp = timestamp;
+    // pubmsg.header.frame_id = frameid;
     publisher.publish(pubmsg);    
 }
 
@@ -110,30 +117,42 @@ sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &Poin
     return msg;
 }
 
-visualization_msgs::Marker ConverToROSmsg(const std::vector<std::vector<Eigen::Vector3d>> &Line)
+visualization_msgs::MarkerArray ConverToROSmsg(const std::vector<Line> &line, const ros::Time &timestamp, const std::string &frameid)
 {
-    visualization_msgs::Marker msg;
-    msg.type = visualization_msgs::Marker::LINE_LIST;
-    msg.scale.x = 0.1;
-    msg.color.r = 1.0;
-    msg.color.a = 1.0;
-    std::cout << "abc" << std::endl;
+    visualization_msgs::MarkerArray line_arr;
 
-    for(size_t i = 0; i < 1; i++){
-        for(size_t j = 0; j < 2; j++){
-            
-            geometry_msgs::Point p;
-            p.x = Line[i][j].x();
-            p.y = Line[i][j].y();
-            p.z = Line[i][j].z();
-            msg.points.push_back(p);
-    std::cout << "abc" << std::endl;
 
-        }
+
+    for(size_t i = 0; i < line.size(); i++){
+        visualization_msgs::Marker msg;
+        msg.header.stamp = timestamp;
+        msg.header.frame_id = frameid;
+        msg.id = (int)i;
+        msg.action = visualization_msgs::Marker::ADD;
+        msg.pose.orientation.w = 1.0;
+        msg.scale.x = 0.03;
+        msg.scale.y = 0.08;
+        msg.scale.z = 0.05;
+        msg.color.r = 1.0;
+        msg.color.a = 1.0;          
+        msg.type = visualization_msgs::Marker::ARROW;
+        
+        geometry_msgs::Point p;
+        p.x = line[i].p1.x();
+        p.y = line[i].p1.y();
+        p.z = line[i].p1.z();
+        msg.points.push_back(p);
+
+        p.x = line[i].p2.x();
+        p.y = line[i].p2.y();
+        p.z = line[i].p2.z();
+        msg.points.push_back(p);
+
+        line_arr.markers.push_back(msg);
     }
 
 
-  return msg;
+  return line_arr;
 }
 
 std::vector<Eigen::Vector3d> ConvertFromROSmsg(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
@@ -164,4 +183,8 @@ double PointDistance(Eigen::Vector3d p){
 
 double PointDistance(Eigen::Vector3d p1, Eigen::Vector3d p2){
   return sqrt((p1.x()-p2.x())*(p1.x()-p2.x()) + (p1.y()-p2.y())*(p1.y()-p2.y()) + (p1.z()-p2.z())*(p1.z()-p2.z()));
+}
+
+double Point2LineDistance(Line l, Eigen::Vector3d p){
+    return ((p - l.p1).cross(p - l.p2)).norm() / (l.p1 - l.p2).norm();
 }

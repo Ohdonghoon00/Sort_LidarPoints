@@ -85,7 +85,8 @@ ros::Publisher pubLine;
 
 const size_t kMaxNumberOfPoints = 1e5;
 double MINIMUM_RANGE = 1.0;
-std::string LidarFrame = "/camera_init"; 
+std::string LidarFrame = "/camera_init";
+Eigen::Vector3d Origin{0.0, 0.0, 0.0};
 
 void RemoveClosedPointCloud(std::vector<Eigen::Vector3d> *pointcloud)
 {
@@ -507,7 +508,6 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // Caculate Curvature and Mark Occluded and Parallel Points    
     CalculateCurvature(PointRange);
     MarkOccludedPoints(laserCloud, PointRange);
-    
 
     // test
     std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel;
@@ -523,43 +523,56 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     std::cout << "surfPointsLessFlat num : " << surfPointsLessFlat.size() << std::endl;
     
     // test points
-    std::vector<std::vector<Eigen::Vector3d>> linetests(10); 
     std::vector<Eigen::Vector3d> testpoints;
     Eigen::Vector3d ReferencePoint;
     int ChannelPass = 1;
-    for(size_t i = 0 ; i < CornerPointByChannel.size(); i ++){
-        if(i == 0){
-            ReferencePoint = CornerPointByChannel[i][0];
-            testpoints.push_back(ReferencePoint);
-            linetests[0].push_back(ReferencePoint);
-            continue;
-        }
-        
-        double MinDist = 10;
-        int Minidx = 0;
-        if(CornerPointByChannel[i].size() == 0) continue;
-        for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
-            double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
-            if(MinDist > dist * dist){
-                MinDist = dist * dist;
-                Minidx = j;
+    int StartChannelNum = 0;
+    std::vector<Line> linetests(CornerPointByChannel[StartChannelNum].size()); 
+    for(size_t k = 0; k < CornerPointByChannel[StartChannelNum].size(); k++){
+        // int k = 0;
+    
+        for(size_t i = StartChannelNum ; i < CornerPointByChannel.size(); i ++){
+            if(i == StartChannelNum){
+                ReferencePoint = CornerPointByChannel[i][k];
+                testpoints.push_back(ReferencePoint);
+                linetests[k].p1 = ReferencePoint;
+                continue;
             }
-        }
-        if(MinDist > 0.05 * ChannelPass){
-            ChannelPass++;
-            continue;
-        } 
             
+            double MinDist = 10;
+            int Minidx = 0;
+            if(CornerPointByChannel[i].size() == 0) continue;
+            for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
+                double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
+                if(MinDist > dist * dist){
+                    MinDist = dist * dist;
+                    Minidx = j;
+                }
+            }
+            if(MinDist > 0.03 || MinDist < 0.01){ 
+                // ChannelPass++;
+                break;
+            } 
+                
 
-        ReferencePoint = CornerPointByChannel[i][Minidx];
-        Eigen::Vector3d testpoint;
-        testpoint << CornerPointByChannel[i][Minidx];
-        testpoints.push_back(testpoint);
-        linetests[0].push_back(testpoint);
-        ChannelPass = 1;
+            ReferencePoint = CornerPointByChannel[i][Minidx];
+            Eigen::Vector3d testpoint;
+            testpoint << CornerPointByChannel[i][Minidx];
+            // std::cout << testpoint << std::endl;
+            testpoints.push_back(testpoint);
+            linetests[k].p2 = testpoint;
+            ChannelPass = 1;
+        }
+    }
+    std::vector<Line> line;
+    int line_num = 0;
+    for(size_t i = 0; i < linetests.size(); i++){
+        if(linetests[i].p2 == Origin) continue;
+        line.push_back(linetests[i]);
+        // std::cout << Point2LineDistance(line[line_num], Origin) << std::endl;
+        line_num++;
     }
     
-            
     
     // Publish Points
     PublishPointCloud(pubLaserCloud, laserCloud, laserCloudMsg->header.stamp, LidarFrame);
@@ -569,7 +582,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubSurfPointsLessFlat, surfPointsLessFlat, laserCloudMsg->header.stamp, LidarFrame);
 
     // Publish Line
-    PublishLine(pubLine, linetests, laserCloudMsg->header.stamp, LidarFrame);
+    PublishLine(pubLine, line, laserCloudMsg->header.stamp, LidarFrame);
 
     // pub testpoints
     PublishPointCloud(pubTestPoints, testpoints, laserCloudMsg->header.stamp, LidarFrame);
@@ -608,7 +621,7 @@ int main(int argc, char **argv)
 
     pubTestPoints = nh.advertise<sensor_msgs::PointCloud2>("/testpoints", 100);
     
-    pubLine = nh.advertise<visualization_msgs::Marker>("/line", 100);
+    pubLine = nh.advertise<visualization_msgs::MarkerArray>("/line", 100);
 
     ros::spin();
 
