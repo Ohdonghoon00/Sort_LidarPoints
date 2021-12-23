@@ -83,6 +83,7 @@ ros::Publisher pubTestPoints;
 // publish line
 ros::Publisher pubLine;
 
+float VerticalAngelRatio = 0;
 const size_t kMaxNumberOfPoints = 1e5;
 double MINIMUM_RANGE = 1.0;
 std::string LidarFrame = "/camera_init";
@@ -186,8 +187,8 @@ void DividePointsByChannel( const std::vector<Eigen::Vector3d>& laserPoints,
 
     float MaxAngle = *max_element(Verticalangles.begin(), Verticalangles.end());
     float MinAngle = *min_element(Verticalangles.begin(), Verticalangles.end());
-    float Ratio = (MaxAngle - MinAngle) / N_SCANS;
-
+    VerticalAngelRatio = (MaxAngle - MinAngle) / N_SCANS;
+    
     // Sort Points by channel
     for (int i = 0; i < cloudSize; i++){
         point.x() = laserPoints[i].x();
@@ -197,7 +198,7 @@ void DividePointsByChannel( const std::vector<Eigen::Vector3d>& laserPoints,
         float angle = VerticalAngle(point);
         int scanID = 0;
         for(int j = 0; j < N_SCANS; j++){
-            if(angle < MinAngle + Ratio * (j + 1)){
+            if(angle < MinAngle + VerticalAngelRatio * (j + 1)){
                 scanID = j;
                 break;
             }
@@ -511,10 +512,19 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // test
     std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel;
+    
     CornerPointByChannel.resize(N_SCANS);
+    
     // sort Lidar points to edge and plane
     DividePointsByEdgeAndPlane(laserCloud, &CornerPointByChannel);
-        
+
+    std::vector<std::vector<int>> CornerPointByChannelIdx;
+    CornerPointByChannelIdx.resize(N_SCANS);
+    for(int i = 0; i < CornerPointByChannel.size(); i++){
+        CornerPointByChannelIdx[i].resize(CornerPointByChannel[i].size());
+    }
+
+
     // print edge and plane num
     std::cout << "Total laserCloud num : " << laserCloud.size() << std::endl;
     std::cout << "cornerPointsSharp num : " << cornerPointsSharp.size() << std::endl;
@@ -527,44 +537,71 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     Eigen::Vector3d ReferencePoint;
     int ChannelPass = 1;
     int StartChannelNum = 0;
-    std::vector<Line> linetests(CornerPointByChannel[StartChannelNum].size()); 
-    for(size_t k = 0; k < CornerPointByChannel[StartChannelNum].size(); k++){
-        // int k = 0;
-    
-        for(size_t i = StartChannelNum ; i < CornerPointByChannel.size(); i ++){
-            if(i == StartChannelNum){
-                ReferencePoint = CornerPointByChannel[i][k];
-                testpoints.push_back(ReferencePoint);
-                linetests[k].p1 = ReferencePoint;
+    int TotalLineNum = 0;
+    // double thres = 0.03;
+    std::vector<Line> linetests;
+    linetests.clear();
+    linetests.resize(cloudSize); 
+    while(StartChannelNum < 16){
+        for(size_t k = 0; k < CornerPointByChannel[StartChannelNum].size(); k++){
+            // int k = 0;
+
+            if(CornerPointByChannelIdx[StartChannelNum].size() == 0) 
                 continue;
-            }
-            
-            double MinDist = 10;
-            int Minidx = 0;
-            if(CornerPointByChannel[i].size() == 0) continue;
-            for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
-                double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
-                if(MinDist > dist * dist){
-                    MinDist = dist * dist;
-                    Minidx = j;
-                }
-            }
-            if(MinDist > 0.03 || MinDist < 0.01){ 
-                // ChannelPass++;
-                break;
-            } 
+
+            if(CornerPointByChannelIdx[StartChannelNum][k] == 1) 
+                continue;
+                
+            for(size_t i = StartChannelNum ; i < CornerPointByChannel.size(); i ++){
                 
 
-            ReferencePoint = CornerPointByChannel[i][Minidx];
-            Eigen::Vector3d testpoint;
-            testpoint << CornerPointByChannel[i][Minidx];
-            // std::cout << testpoint << std::endl;
-            testpoints.push_back(testpoint);
-            linetests[k].p2 = testpoint;
-            ChannelPass = 1;
+                if(i == StartChannelNum){
+                    ReferencePoint = CornerPointByChannel[i][k];
+                    testpoints.push_back(ReferencePoint);
+                    linetests[TotalLineNum].p1 = ReferencePoint;
+                    CornerPointByChannelIdx[i][k] = 1;
+                    continue;
+                }
+                
+                double MinDist = 10;
+                int Minidx = 0;
+                if(CornerPointByChannel[i].size() == 0) continue;
+                for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
+                    double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
+
+                    if(MinDist > dist){
+                        MinDist = dist;
+                        Minidx = j;
+                    }
+                }
+                double LidarToPoint = PointDistance(ReferencePoint);
+                double thres = LineThres(ReferencePoint, VerticalAngelRatio);
+                std::cout << "LidarToPoint : " << LidarToPoint << std::endl;
+                std::cout << "Min distance : " << MinDist << std::endl;
+                std::cout << "thres : " << thres << std::endl;
+                
+                if(MinDist > thres * 1.15 ){ 
+                    // ChannelPass++;
+                    break;
+                } 
+                std::cout << "Line Min distance : " << MinDist << std::endl;
+
+                ReferencePoint = CornerPointByChannel[i][Minidx];
+                CornerPointByChannelIdx[i][Minidx] = 1;
+                Eigen::Vector3d testpoint;
+                testpoint << CornerPointByChannel[i][Minidx];
+                // std::cout << testpoint << std::endl;
+                testpoints.push_back(testpoint);
+                linetests[TotalLineNum].p2 = testpoint;
+                // ChannelPass = 1;
+            }
+            TotalLineNum++;
         }
+        // std::cout << StartChannelNum << std::endl;
+        StartChannelNum++;
     }
     std::vector<Line> line;
+    line.clear();
     int line_num = 0;
     for(size_t i = 0; i < linetests.size(); i++){
         if(linetests[i].p2 == Origin) continue;

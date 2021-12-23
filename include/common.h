@@ -50,6 +50,8 @@
 struct Line;
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
 visualization_msgs::MarkerArray ConverToROSmsg(const std::vector<Line> &line, const ros::Time &timestamp, const std::string &frameid);
+visualization_msgs::MarkerArray ConverToROSmsg(const ros::Time &timestamp, const std::string &frameid);
+
 
 struct Line
 {
@@ -73,8 +75,10 @@ void PublishLine(const ros::Publisher &publisher, const std::vector<Line> &line,
     visualization_msgs::MarkerArray pubmsg;
     pubmsg = ConverToROSmsg(line, timestamp, frameid);
 
-    // pubmsg.header.stamp = timestamp;
-    // pubmsg.header.frame_id = frameid;
+    visualization_msgs::MarkerArray DeleteMarkermsg;
+    DeleteMarkermsg = ConverToROSmsg(timestamp, frameid);
+    
+    publisher.publish(DeleteMarkermsg);
     publisher.publish(pubmsg);    
 }
 
@@ -155,6 +159,18 @@ visualization_msgs::MarkerArray ConverToROSmsg(const std::vector<Line> &line, co
   return line_arr;
 }
 
+visualization_msgs::MarkerArray ConverToROSmsg(const ros::Time &timestamp, const std::string &frameid)
+{
+    visualization_msgs::MarkerArray msg_arr;
+    visualization_msgs::Marker msg;
+    
+    msg.header.stamp = timestamp;
+    msg.header.frame_id = frameid;
+    msg.action = visualization_msgs::Marker::DELETEALL;
+    msg_arr.markers.push_back(msg);
+    
+    return msg_arr;
+}
 std::vector<Eigen::Vector3d> ConvertFromROSmsg(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 {
     std::vector<Eigen::Vector3d> laserPoints;
@@ -188,3 +204,21 @@ double PointDistance(Eigen::Vector3d p1, Eigen::Vector3d p2){
 double Point2LineDistance(Line l, Eigen::Vector3d p){
     return ((p - l.p1).cross(p - l.p2)).norm() / (l.p1 - l.p2).norm();
 }
+
+double CosRaw2(double a, double b, float ang){
+    return sqrt(a * a + b * b - 2 * a * b * cos(ang * M_PI / 180));
+}
+
+double LineThres(Eigen::Vector3d p, float VerticalAngleRatio){
+    
+    double dist = PointDistance(p);
+    float VerticalAngle_ = VerticalAngle(p);
+    double PointToLine = dist * cos(std::abs(VerticalAngle_) * M_PI / 180);
+    float theta = std::abs(VerticalAngleRatio + VerticalAngle_);
+    double NextPointDis = PointToLine / cos(theta * M_PI / 180);
+    
+    return CosRaw2(dist, NextPointDis, VerticalAngleRatio);
+}
+    
+
+
