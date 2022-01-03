@@ -46,7 +46,7 @@
 #include "common.h"
 #include "tic_toc.h"
 #include <rviz_visual_tools/rviz_visual_tools.h>
-#include <pcl/filters/voxel_grid.h>
+// #include <pcl/filters/voxel_grid.h>
 
 const int systemDelay = 0; 
 int systemInitCount = 0;
@@ -65,12 +65,14 @@ std::vector<Eigen::Vector3d> cornerPointsSharp;
 std::vector<Eigen::Vector3d> cornerPointsLessSharp;
 std::vector<Eigen::Vector3d> surfPointsFlat;
 std::vector<Eigen::Vector3d> surfPointsLessFlat;
+
 std::vector<int> FeatureNumByScan(N_SCANS);
 std::vector<std::vector<int>> PointIndexByChannel; // ( edge → 0 , plane → 1 , pass point → -1, occluded/parallel → -2 )
-
+std::vector<int> LeafIds;
  
 
 bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
+bool SameLeaf(int i, int j) { return LeafIds[i] < LeafIds[j]; }
 
 // Visualize Plane and Line
 rviz_visual_tools::RvizVisualToolsPtr VisualLine;
@@ -92,6 +94,71 @@ const size_t kMaxNumberOfPoints = 1e5;
 double MINIMUM_RANGE = 1.0;
 std::string LidarFrame = "/camera_init";
 Eigen::Vector3d Origin{0.0, 0.0, 0.0};
+Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2);
+
+
+// DownsizeFiltering
+void getMinMax(std::vector< Eigen::Vector3d > &inCloud, Eigen::Vector3d &minp, Eigen::Vector3d &maxp)
+{
+    for(size_t i = 0; i < inCloud.size(); i++){
+        minp.x() = std::min(minp.x(), inCloud[i].x());
+        minp.y() = std::min(minp.y(), inCloud[i].y());
+        minp.z() = std::min(minp.z(), inCloud[i].z());
+	
+        maxp.x() = std::max(maxp.x(), inCloud[i].x());
+        maxp.y() = std::max(maxp.y(), inCloud[i].y());
+        maxp.z() = std::max(maxp.z(), inCloud[i].z());
+    }
+}
+
+void DownSizeFiltering(Eigen::Vector3d &LeafSize, std::vector< Eigen::Vector3d > &InCloud, std::vector< Eigen::Vector3d > &OutCloud)
+{
+	
+    // Compute minimum and maximum point values
+    Eigen::Vector3d minp(DBL_MAX, DBL_MAX, DBL_MAX), maxp(-DBL_MAX, -DBL_MAX, -DBL_MAX);
+    getMinMax(InCloud, minp, maxp);
+
+    // Compute Leaf Count
+    Eigen::Vector3i MaxLeafCount(ceil((maxp.x() - minp.x())/LeafSize.x()), ceil((maxp.y() - minp.y())/LeafSize.y()), ceil((maxp.z() - minp.z())/LeafSize.z()));
+    std::vector<int> LeafInd;
+
+
+    // Leaf Idx
+    LeafIds.clear();
+    for(size_t i = 0; i < InCloud.size(); i++){
+
+        int LeafCount_x = ceil((InCloud[i].x() - minp.x()) / LeafSize.x());
+        int LeafCount_y = ceil((InCloud[i].y() - minp.y()) / LeafSize.y());
+        int LeafCount_z = ceil((InCloud[i].z() - minp.z()) / LeafSize.z());
+
+        int LeafId = (LeafCount_x - 1) + (LeafCount_y - 1) * MaxLeafCount.x() + (LeafCount_z - 1) * MaxLeafCount.x() * MaxLeafCount.y();
+        
+        LeafInd.push_back(i);
+        LeafIds.push_back(LeafId);
+
+    }
+    
+    std::sort(LeafInd.begin(), LeafInd.end(), SameLeaf);
+    
+    for(int cp = 0; cp < InCloud.size();){
+        Eigen::Vector3d Centroid(InCloud[LeafInd[cp]].x(), InCloud[LeafInd[cp]].y(), InCloud[LeafInd[cp]].z());
+        int i = cp + 1;
+        while(i < InCloud.size() && LeafIds[LeafInd[cp]] == LeafIds[LeafInd[i]]){
+            Centroid += InCloud[LeafInd[i]];
+            ++i;
+        }
+        
+        Centroid.x() /= static_cast<double>(i - cp);
+        Centroid.y() /= static_cast<double>(i - cp);
+        Centroid.z() /= static_cast<double>(i - cp);
+
+        OutCloud.push_back(Centroid);
+
+        cp = i;
+    }
+
+
+}
 
 void RemoveClosedPointCloud(std::vector<Eigen::Vector3d> *pointcloud)
 {
@@ -328,16 +395,17 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
     cornerPointsSharp.clear();
     cornerPointsLessSharp.clear();
     surfPointsFlat.clear();
-    surfPointsLessFlat.clear();    
+    surfPointsLessFlat.clear();
     //test
     // CornerPointByChannel.clear();
-    
+    // pcl::PointCloud<pcl::PointXYZ> surfPointsLessFlatPCL;
     // Edge Points and Plane Points
     for (int i = 0; i < N_SCANS; i++)
     {
         if( scanEndInd[i] - scanStartInd[i] < 6)
             continue;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsLessFlatScan(new pcl::PointCloud<pcl::PointXYZ>);
+        // pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsLessFlatScan(new pcl::PointCloud<pcl::PointXYZ>);
+        std::vector<Eigen::Vector3d> surfPointsLessFlat_;
         for (int j = 0; j < 6; j++){
             
             int sp = scanStartInd[i] + (scanEndInd[i] - scanStartInd[i]) * j / 6; 
@@ -444,35 +512,42 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
 
             for (int k = sp; k <= ep; k++){
                 if (cloudLabel[k] <= 0){
-                    pcl::PointXYZ point_;
+                    // pcl::PointXYZ point_;
                     int Scanid_ = 0;
-                    point_.x = laserCloud[k].x();
-                    point_.y = laserCloud[k].y();
-                    point_.z = laserCloud[k].z();
-                    surfPointsLessFlatScan->push_back(point_);
+                    // point_.x = laserCloud[k].x();
+                    // point_.y = laserCloud[k].y();
+                    // point_.z = laserCloud[k].z();
+                    // surfPointsLessFlatScan->push_back(point_);
+
+                    //downsize test
+                    surfPointsLessFlat_.push_back(laserCloud[k]);
+
+
                     int indbyscan = LaserCloudIdxToScanIdx(k, FeatureNumByScan, &Scanid_);
                     PointIndexByChannel[Scanid_][indbyscan] = 1;
                 }
             }
         }
         
+        DownSizeFiltering(DownSizeLeafSize, surfPointsLessFlat_, surfPointsLessFlat);
         // std::cout << " flat points num before downsize filtering : " << surfPointsLessFlatScan->size() << std::endl;
+        std::cout << " flat points num before downsize filtering : " << surfPointsLessFlat_.size() << std::endl;
         
-        pcl::PointCloud<pcl::PointXYZ> surfPointsLessFlatScanDS;
-        pcl::VoxelGrid<pcl::PointXYZ> downSizeFilter;
-        downSizeFilter.setInputCloud(surfPointsLessFlatScan);
-        downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
-        downSizeFilter.filter(surfPointsLessFlatScanDS);
+        // pcl::PointCloud<pcl::PointXYZ> surfPointsLessFlatScanDS;
+        // pcl::VoxelGrid<pcl::PointXYZ> downSizeFilter;
+        // downSizeFilter.setInputCloud(surfPointsLessFlatScan);
+        // downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+        // downSizeFilter.filter(surfPointsLessFlatScanDS);
 
-        // std::cout << " flat points num After downsize filtering : " << surfPointsLessFlatScanDS.size() << std::endl;
+        // surfPointsLessFlatPCL += surfPointsLessFlatScanDS;
 
-
-        // surfPointsLessFlat += surfPointsLessFlatScanDS;
-        for(size_t m = 0; m < surfPointsLessFlatScanDS.size(); m++){
-            Eigen::Vector3d _point;
-            _point << surfPointsLessFlatScanDS[m].x, surfPointsLessFlatScanDS[m].y, surfPointsLessFlatScanDS[m].z; 
-            surfPointsLessFlat.push_back(_point);
-        }
+        // std::cout << " flat points num After downsize filtering : " << surfPointsLessFlatPCL.size() << std::endl;
+        std::cout << " flat points num After downsize filtering : " << surfPointsLessFlat.size() << std::endl;
+        // for(size_t m = 0; m < surfPointsLessFlatScanDS.size(); m++){
+        //     Eigen::Vector3d _point;
+        //     _point << surfPointsLessFlatScanDS[m].x, surfPointsLessFlatScanDS[m].y, surfPointsLessFlatScanDS[m].z; 
+        //     surfPointsLessFlat.push_back(_point);
+        // }
     } 
 }
 
@@ -524,7 +599,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     std::vector<std::vector<int>> CornerPointByChannelIdx;
     CornerPointByChannelIdx.resize(N_SCANS);
-    for(int i = 0; i < CornerPointByChannel.size(); i++){
+    for(size_t i = 0; i < CornerPointByChannel.size(); i++){
         CornerPointByChannelIdx[i].resize(CornerPointByChannel[i].size());
     }
 
@@ -539,7 +614,6 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // test points
     std::vector<Eigen::Vector3d> testpoints;
     Eigen::Vector3d ReferencePoint;
-    int ChannelPass = 1;
     int StartChannelNum = 0;
     int TotalLineNum = 0;
     // double thres = 0.03;
@@ -578,17 +652,17 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                         Minidx = j;
                     }
                 }
-                double LidarToPoint = PointDistance(ReferencePoint);
+                // double LidarToPoint = PointDistance(ReferencePoint);
                 double thres = LineThres(ReferencePoint, VerticalAngelRatio);
-                std::cout << "LidarToPoint : " << LidarToPoint << std::endl;
-                std::cout << "Min distance : " << MinDist << std::endl;
-                std::cout << "thres : " << thres << std::endl;
+                // std::cout << "LidarToPoint : " << LidarToPoint << std::endl;
+                // std::cout << "Min distance : " << MinDist << std::endl;
+                // std::cout << "thres : " << thres << std::endl;
                 
                 if(MinDist > thres * 1.15 ){ 
                     // ChannelPass++;
                     break;
                 } 
-                std::cout << "Line Min distance : " << MinDist << std::endl;
+                // std::cout << "Line Min distance : " << MinDist << std::endl;
 
                 ReferencePoint = CornerPointByChannel[i][Minidx];
                 CornerPointByChannelIdx[i][Minidx] = 1;
@@ -614,7 +688,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         line_num++;
     }
     
-    
+    std::cout << "ab" << std::endl;
     // Publish Points
     PublishPointCloud(pubLaserCloud, laserCloud, laserCloudMsg->header.stamp, LidarFrame);
     PublishPointCloud(pubCornerPointsSharp, cornerPointsSharp, laserCloudMsg->header.stamp, LidarFrame);
@@ -629,15 +703,20 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     VisualPlane->deleteAllMarkers();
     
     // Publish Line
-    for(int i = 0; i < line.size(); i++)
+    for(size_t i = 0; i < line.size(); i++)
         VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::RED, rviz_visual_tools::LARGE);
-    VisualLine->trigger();
+    // VisualLine->trigger();
 
     // Publish Plane
-    
-    for(int i = 0; i < line.size(); i++)
-        VisualPlane->publishCuboid(line[i].p1, line[i].p2, rviz_visual_tools::RED);
-    VisualPlane->trigger();
+    Eigen::Isometry3d Pa = Eigen::Isometry3d::Identity();
+    Pa.translation().x() = 1;
+    Pa.linear().setRandom();
+    // std::cout << Pa.rotation() << std::endl;
+    // std::cout << Pa.linear() << std::endl;
+    // for(int i = 0; i < line.size(); i++)
+        // VisualPlane->publishCuboid(line[i].p1, line[i].p2, rviz_visual_tools::RED);
+    VisualPlane->publishXZPlane(Pa, rviz_visual_tools::BLUE);
+    // VisualPlane->trigger();
 
     // pub testpoints
     PublishPointCloud(pubTestPoints, testpoints, laserCloudMsg->header.stamp, LidarFrame);
@@ -645,7 +724,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     printf("scan registration time %f ms *************\n", t_whole.toc());
     if(t_whole.toc() > 100)
         ROS_WARN("scan registration process over 100ms");
-      
+    std::cout << "abc" << std::endl;
 }
 
 int main(int argc, char **argv)
