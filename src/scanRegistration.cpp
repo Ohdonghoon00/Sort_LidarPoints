@@ -45,7 +45,7 @@
 
 #include "common.h"
 #include "tic_toc.h"
-
+#include <rviz_visual_tools/rviz_visual_tools.h>
 #include <pcl/filters/voxel_grid.h>
 
 const int systemDelay = 0; 
@@ -71,6 +71,10 @@ std::vector<std::vector<int>> PointIndexByChannel; // ( edge → 0 , plane → 1
  
 
 bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
+
+// Visualize Plane and Line
+rviz_visual_tools::RvizVisualToolsPtr VisualLine;
+rviz_visual_tools::RvizVisualToolsPtr VisualPlane;
 
 // publish pointcloud
 ros::Publisher pubLaserCloud;
@@ -620,6 +624,20 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // Publish Line
     PublishLine(pubLine, line, laserCloudMsg->header.stamp, LidarFrame);
+    
+    VisualLine->deleteAllMarkers();
+    VisualPlane->deleteAllMarkers();
+    
+    // Publish Line
+    for(int i = 0; i < line.size(); i++)
+        VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::RED, rviz_visual_tools::LARGE);
+    VisualLine->trigger();
+
+    // Publish Plane
+    
+    for(int i = 0; i < line.size(); i++)
+        VisualPlane->publishCuboid(line[i].p1, line[i].p2, rviz_visual_tools::RED);
+    VisualPlane->trigger();
 
     // pub testpoints
     PublishPointCloud(pubTestPoints, testpoints, laserCloudMsg->header.stamp, LidarFrame);
@@ -633,7 +651,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "scanRegistration");
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
 
     nh.param<int>("scan_line", N_SCANS, 16);
     nh.param<double>("minimum_range", MINIMUM_RANGE, 5.0);
@@ -660,10 +678,17 @@ int main(int argc, char **argv)
     
     pubLine = nh.advertise<visualization_msgs::MarkerArray>("/line", 100);
 
+    VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line2"));
+    VisualLine->loadMarkerPub();
+    
+    VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/Plane"));
+    VisualPlane->loadMarkerPub();
+
     ros::spin();
 
     return 0;
 }
+
     
 
 

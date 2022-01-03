@@ -17,6 +17,8 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   cv_bridge
   tf
+  visualization_msgs
+  rviz_visual_tools
 )
 find_package( Boost REQUIRED COMPONENTS 
 timer )
@@ -38,7 +40,7 @@ include_directories(
 
 catkin_package(
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
-  DEPENDS EIGEN3 PCL 
+  DEPENDS EIGEN3 PCL visualization_msgs 
   INCLUDE_DIRS include
 )
 
