@@ -6,7 +6,7 @@
         <param name="to_bag" type="bool" value="false" />                                       <!-- true : make bagfile in data_dir/output_bag_file -->
         <param name="output_bag_file" type="string" value="multipleye_lidar_data.bag" />        <!--replace with your output bagfile -->
         <param name="ToUndistortionPoints" type="bool" value="true" />                          <!--true : Move Distortion points // false : Use ordinary points-->
-        <param name="publish_delay" type="int" value="5" />                                     <!-- 1 : 10hz , 2: 5hz -->
+        <param name="publish_delay" type="int" value="10" />                                     <!-- 1 : 10hz , 2: 5hz -->
     </node>
 </launch>
         

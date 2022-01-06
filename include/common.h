@@ -60,6 +60,11 @@ struct Line
     // Eigen::Vector3d vec = p2 - p1;
 };
 
+struct Plane
+{
+    Eigen::Vector3d normal;
+    Eigen::Vector3d centroid;
+};
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
 {
@@ -219,6 +224,46 @@ double LineThres(Eigen::Vector3d p, float VerticalAngleRatio){
     
     return CosRaw2(dist, NextPointDis, VerticalAngleRatio);
 }
+
+Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
+{
+    Eigen::Matrix3d r;
+    Eigen::Vector3d UnitVec(0, 1, 1);
     
+    Eigen::Vector3d r1 = UnitVec.cross(n);
+    Eigen::Vector3d r2 = n.cross(r1);
+    Eigen::Vector3d r3 = n;
 
+    r.row(0) = r1;
+    r.row(1) = r2;
+    r.row(2) = r3;
 
+    return r;
+
+}
+
+// Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
+// {
+//     Eigen::Matrix3d r;
+//     Eigen::Vector3d UnitVec(0, 1, 0);
+    
+//     Eigen::Vector3d w = UnitVec.cross(n);
+    
+//     Eigen::Vector3d a = UnitVec.cross(w);
+//     Eigen::Vector3d b = n.cross(w);
+    
+//     Eigen::Matrix3d A;
+//     A <<    UnitVec.transpose(),
+//             w.transpose(),
+//             a.transpose();
+    
+//     Eigen::Matrix3d B;
+//     B <<    n.transpose(),
+//             w.transpose(),
+//             b.transpose();
+
+//     r = B.dot(A.inverse());
+
+//     return r;
+
+// }
