@@ -25,10 +25,6 @@
     <!--  -->
     <param name="lidar_type" type="string" value="VLP16"/> 
     <remap from="/velodyne_points" to="/velodyne_points"/>
-    
-    <param name="save_directory" type="string" value="/home/multipleye/Dataset/201014_skt_lobby_day_lidar/result/"/>  <!-- CHANGE THIS and end with / -->
-    <param name="data_dir" type="string" value="/home/multipleye/Dataset/201014_skt_lobby_day_lidar/" />   <!--replace with your data dir -->
-
 
     <!-- nodes -->
     <node pkg="sort_lidarpoints" type="ascanRegistration" name="ascanRegistration" output="screen" />
@@ -43,3 +39,5 @@
     </group>
 
 </launch>
+
+

@@ -46,7 +46,7 @@
 
 #include "common.h"
 #include "tic_toc.h"
-#include <rviz_visual_tools/rviz_visual_tools.h>
+
 
 const int systemDelay = 0; 
 int systemInitCount = 0;
@@ -80,7 +80,7 @@ bool SameLeaf(int i, int j) { return LeafIds[i] < LeafIds[j]; }
 // Visualize Plane and Line
 rviz_visual_tools::RvizVisualToolsPtr VisualLine;
 rviz_visual_tools::RvizVisualToolsPtr VisualPlane;
-rviz_visual_tools::RvizVisualToolsPtr VisualLine_;
+rviz_visual_tools::RvizVisualToolsPtr VisualArrow;
 
 // publish pointcloud
 ros::Publisher pubLaserCloud;
@@ -88,14 +88,11 @@ ros::Publisher pubCornerPointsSharp;
 ros::Publisher pubCornerPointsLessSharp;
 ros::Publisher pubSurfPointsFlat;
 ros::Publisher pubSurfPointsLessFlat;
-ros::Publisher pubTestPoints;
-ros::Publisher pubTestPoints_;
-
-// publish line
-ros::Publisher pubLine;
+ros::Publisher pubReferencePlanePoints;
 
 float VerticalAngelRatio = 0;
 Eigen::Vector3d Origin{0.0, 0.0, 0.0};
+Eigen::Vector3d ZVec = Eigen::Vector3d::UnitZ();
 Eigen::Matrix3d Iden = Eigen::Matrix3d::Identity();
 std::string LidarFrame = "/camera_init";
 
@@ -103,16 +100,21 @@ const size_t kMaxNumberOfPoints = 1e5;
 double MINIMUM_RANGE = 1.0;
 Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2);
 double Line_Thres = 1.07;
-double PointThres = 2;
+
+double SearchPlanePointDis = 2; // (m)
+double SuccessPlanePointDis = 0.02;
+double SuccessPlanePointRatioThres = 0.8;
+
+
 
 std::vector<Eigen::Vector3d> PlanePointsforPlane(Eigen::Vector3d p)
 {
     std::vector<Eigen::Vector3d> PlanePoints;
     
-    for(int i = 0; i < surfPointsLessFlat.size(); i++){
+    for(size_t i = 0; i < surfPointsLessFlat.size(); i++){
 
         double PointDis = PointDistance(surfPointsLessFlat[i], p);
-        if(PointDis < 2)
+        if(PointDis < SearchPlanePointDis)
             PlanePoints.push_back(surfPointsLessFlat[i]);
     }
     
@@ -124,22 +126,50 @@ Plane PlaneFromPoints(std::vector<Eigen::Vector3d> p)
     Plane plane;
 
     Eigen::Matrix3Xd points(3, p.size());
-    for(int i = 0; i < p.size(); i++)
+    for(size_t i = 0; i < p.size(); i++)
         points.col(i) = p[i];
-    std::cout << "ab" << std::endl;
     Eigen::Vector3d c(points.row(0).mean(), points.row(1).mean(), points.row(2).mean());
 
     points.row(0).array() -= c.x();
     points.row(1).array() -= c.y();
     points.row(2).array() -= c.z();
-    std::cout << "ab" << std::endl;
     auto svd = points.jacobiSvd(Eigen::ComputeFullU | Eigen::ComputeThinV);
 
     Eigen::Vector3d n = svd.matrixU().col(2);
-    std::cout << "ab" << std::endl;
     plane.normal = n;
     plane.centroid = c;
 
+    return plane;
+}
+
+std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat)
+{
+    std::vector<Plane> plane;
+    
+    for(size_t i = 0; i < surfPointsFlat.size(); i++){
+        
+        std::vector<Eigen::Vector3d> ReferencePlanePoint = PlanePointsforPlane(surfPointsFlat[i]);
+        if(ReferencePlanePoint.size() < 30) continue;
+        // std::cout << "Total ReferencePlanePoint Num : " << ReferencePlanePoint.size() << std::endl;
+        Plane plane_ = PlaneFromPoints(ReferencePlanePoint);
+        
+        // remove ground point
+        if(ZVec.cross(plane_.normal).norm() < 0.5) continue;
+        int cnt = 0;
+        for(size_t i = 0; i < ReferencePlanePoint.size(); i++){
+            double PointToPlaneDis = Point2PlaneDistance(plane_, ReferencePlanePoint[i]);
+            if(PointToPlaneDis < SuccessPlanePointDis){
+                cnt++;
+            }
+
+        }
+        double SuccessPlanePointRatio = (double)cnt / (double)ReferencePlanePoint.size();
+        // std::cout << "Success plane Point Ratio : " << SuccessPlanePointRatio << std::endl;
+        if(SuccessPlanePointRatio > SuccessPlanePointRatioThres)
+            plane.push_back(plane_);
+
+    }
+    std::cout << "Success Plane Num : " << plane.size() << std::endl;
     return plane;
 }
 
@@ -527,7 +557,6 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
                 if (cloudNeighborPicked[ind] == 0 &&
                     cloudCurvature[ind] < 0.1)
                 {
-                    std::cout << cloudCurvature[ind] << std::endl;
                     cloudLabel[ind] = -1; 
                     surfPointsFlat.push_back(laserCloud[ind]);
                     // RefefrencePlanePointTest
@@ -643,12 +672,11 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     std::cout << "surfPointsFlat num : " << surfPointsFlat.size() << std::endl;
     std::cout << "surfPointsLessFlat num : " << surfPointsLessFlat.size() << std::endl;
     
-    // test line
+    // Select Line
     std::vector<Eigen::Vector3d> testpoints;
     Eigen::Vector3d ReferencePoint;
     size_t StartChannelNum = 0;
     int TotalLineNum = 0;
-    // double thres = 0.03;
     std::vector<Line> linetests;
     linetests.clear();
     linetests.resize(cloudSize); 
@@ -719,13 +747,10 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         line_num++;
     }
     
-    // test plane
-    Plane plane;
-    std::vector<Eigen::Vector3d> RefefrencePlanePointTest = PlanePointsforPlane(surfPointsFlat[200]);
-    std::cout << RefefrencePlanePointTest.size() << std::endl;
-    plane = PlaneFromPoints(RefefrencePlanePointTest);
+    
+    // Select Plane
+    std::vector<Plane> plane = SelectPlane(surfPointsFlat);
 
-    std::cout << "ab" << std::endl;
 
     // Publish Points
     PublishPointCloud(pubLaserCloud, laserCloud, laserCloudMsg->header.stamp, LidarFrame);
@@ -734,38 +759,17 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubSurfPointsFlat, surfPointsFlat, laserCloudMsg->header.stamp, LidarFrame);
     PublishPointCloud(pubSurfPointsLessFlat, surfPointsLessFlat, laserCloudMsg->header.stamp, LidarFrame);
 
-    // Publish Line
-    PublishLine(pubLine, line, laserCloudMsg->header.stamp, LidarFrame);
-    
-    VisualLine->deleteAllMarkers();
-    VisualPlane->deleteAllMarkers();
-    VisualLine_->deleteAllMarkers();
-    // Publish Line
-    for(size_t i = 0; i < line.size(); i++)
-        VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::RED, rviz_visual_tools::LARGE);
-    // VisualLine->trigger();
-    VisualLine_->publishLine(Origin, plane.normal, rviz_visual_tools::RED, rviz_visual_tools::LARGE);
-    VisualLine_->trigger();
-    // Publish Plane
-    Eigen::Isometry3d VisualizePlane = Eigen::Isometry3d::Identity();
-    VisualizePlane.translation() = plane.centroid;
-    VisualizePlane.linear() = NormalToRotation(plane.normal);
-    std::cout << " normal : " << plane.normal << std::endl;
-    std::cout << VisualizePlane.rotation() << std::endl;
-    std::cout << VisualizePlane.linear() << std::endl;
-    // for(int i = 0; i < line.size(); i++)
-        // VisualPlane->publishCuboid(line[i].p1, line[i].p2, rviz_visual_tools::RED);
-    VisualPlane->publishXZPlane(VisualizePlane, rviz_visual_tools::BLUE);
-    VisualPlane->trigger();
-
     // pub testpoints
-    PublishPointCloud(pubTestPoints, testpoints, laserCloudMsg->header.stamp, LidarFrame);
-    PublishPointCloud(pubTestPoints_, RefefrencePlanePointTest, laserCloudMsg->header.stamp, LidarFrame);
+    // PublishPointCloud(pubReferencePlanePoints, ReferencePlanePoint, laserCloudMsg->header.stamp, LidarFrame);
+
+    // Publish Line and Plane
+    PublishLine(VisualLine, line);
+    PublishPlane(VisualPlane, plane);
+    PublishPlaneNormal(VisualArrow, plane);
 
     printf("scan registration time %f ms *************\n", t_whole.toc());
     if(t_whole.toc() > 100)
         ROS_WARN("scan registration process over 100ms");
-    std::cout << "abc" << std::endl;
 }
 
 int main(int argc, char **argv)
@@ -794,19 +798,15 @@ int main(int argc, char **argv)
 
     pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100);
 
-    pubTestPoints = nh.advertise<sensor_msgs::PointCloud2>("/testpoints", 100);
-    pubTestPoints_ = nh.advertise<sensor_msgs::PointCloud2>("/testpoints_", 100);
+    // pubReferencePlanePoints = nh.advertise<sensor_msgs::PointCloud2>("/ReferencePlanePoints", 100);
 
-    
-    pubLine = nh.advertise<visualization_msgs::MarkerArray>("/line", 100);
-
-    VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line2"));
+    VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line"));
     VisualLine->loadMarkerPub();
 
-    VisualLine_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line3"));
-    VisualLine_->loadMarkerPub();
+    VisualArrow.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/planeNormal"));
+    VisualArrow->loadMarkerPub();
     
-    VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/Plane"));
+    VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane"));
     VisualPlane->loadMarkerPub();
 
     ros::spin();

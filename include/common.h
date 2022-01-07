@@ -44,13 +44,15 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <ros/ros.h>
+#include <rviz_visual_tools/rviz_visual_tools.h>
 
-// #include <pcl/point_types.h>
 
 struct Line;
+struct Plane;
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
 visualization_msgs::MarkerArray ConverToROSmsg(const std::vector<Line> &line, const ros::Time &timestamp, const std::string &frameid);
 visualization_msgs::MarkerArray ConverToROSmsg(const ros::Time &timestamp, const std::string &frameid);
+Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n);
 
 
 struct Line
@@ -87,6 +89,44 @@ void PublishLine(const ros::Publisher &publisher, const std::vector<Line> &line,
     publisher.publish(pubmsg);    
 }
 
+void PublishLine(const rviz_visual_tools::RvizVisualToolsPtr VisualLine, const std::vector<Line> line)
+{
+    VisualLine->deleteAllMarkers();
+    for(size_t i = 0; i < line.size(); i++)
+        VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::GREEN, rviz_visual_tools::LARGE);
+    VisualLine->trigger();
+}
+
+void PublishPlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const std::vector<Plane> plane)
+{
+   VisualPlane->deleteAllMarkers();
+   // Publish Plane
+   for(size_t i = 0; i < plane.size(); i++){
+
+        Eigen::Isometry3d VisualizePlane;
+        VisualizePlane.translation() = plane[i].centroid;
+        VisualizePlane.linear() = NormalToRotation(plane[i].normal);
+        VisualPlane->publishXYPlane(VisualizePlane, rviz_visual_tools::BLUE);
+        VisualPlane->trigger();
+   }    
+}
+        
+
+
+
+void PublishPlaneNormal(const rviz_visual_tools::RvizVisualToolsPtr VisualPlaneNormal, const std::vector<Plane> plane)
+{
+    VisualPlaneNormal->deleteAllMarkers();
+    // publish plane normal
+    for(size_t i = 0; i < plane.size(); i++){    
+        
+        Eigen::Isometry3d VisualizePlaneNormal;
+        VisualizePlaneNormal.translation() = plane[i].centroid;
+        VisualizePlaneNormal.linear() = NormalToRotation(plane[i].normal);
+        VisualPlaneNormal->publishZArrow(VisualizePlaneNormal, rviz_visual_tools::RED, rviz_visual_tools::LARGE, 1.0);
+        VisualPlaneNormal->trigger();
+    }
+}
 
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud)
 {
@@ -228,42 +268,15 @@ double LineThres(Eigen::Vector3d p, float VerticalAngleRatio){
 Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
 {
     Eigen::Matrix3d r;
-    Eigen::Vector3d UnitVec(0, 1, 1);
+    Eigen::Vector3d UnitVec = Eigen::Vector3d::UnitZ();
     
-    Eigen::Vector3d r1 = UnitVec.cross(n);
-    Eigen::Vector3d r2 = n.cross(r1);
-    Eigen::Vector3d r3 = n;
-
-    r.row(0) = r1;
-    r.row(1) = r2;
-    r.row(2) = r3;
-
-    return r;
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(n, UnitVec);
+    return q.toRotationMatrix();
 
 }
 
-// Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
-// {
-//     Eigen::Matrix3d r;
-//     Eigen::Vector3d UnitVec(0, 1, 0);
-    
-//     Eigen::Vector3d w = UnitVec.cross(n);
-    
-//     Eigen::Vector3d a = UnitVec.cross(w);
-//     Eigen::Vector3d b = n.cross(w);
-    
-//     Eigen::Matrix3d A;
-//     A <<    UnitVec.transpose(),
-//             w.transpose(),
-//             a.transpose();
-    
-//     Eigen::Matrix3d B;
-//     B <<    n.transpose(),
-//             w.transpose(),
-//             b.transpose();
-
-//     r = B.dot(A.inverse());
-
-//     return r;
-
-// }
+double Point2PlaneDistance(Plane p, Eigen::Vector3d x)
+{
+    Eigen::Vector3d b = x - p.centroid;
+    return std::abs(p.normal.dot(b)) / p.normal.norm();
+}
