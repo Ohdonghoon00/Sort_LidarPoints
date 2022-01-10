@@ -66,6 +66,7 @@ struct Plane
 {
     Eigen::Vector3d normal;
     Eigen::Vector3d centroid;
+    double scale = 1.0;
 };
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
@@ -106,7 +107,7 @@ void PublishPlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const
         Eigen::Isometry3d VisualizePlane;
         VisualizePlane.translation() = plane[i].centroid;
         VisualizePlane.linear() = NormalToRotation(plane[i].normal);
-        VisualPlane->publishXYPlane(VisualizePlane, rviz_visual_tools::BLUE);
+        VisualPlane->publishXYPlane(VisualizePlane, rviz_visual_tools::TRANSLUCENT_DARK, plane[i].scale   );
         VisualPlane->trigger();
    }    
 }
@@ -254,7 +255,7 @@ double CosRaw2(double a, double b, float ang){
     return sqrt(a * a + b * b - 2 * a * b * cos(ang * M_PI / 180));
 }
 
-double LineThres(Eigen::Vector3d p, float VerticalAngleRatio){
+double NextChannelPointDis(Eigen::Vector3d p, float VerticalAngleRatio){
     
     double dist = PointDistance(p);
     float VerticalAngle_ = VerticalAngle(p);
@@ -269,8 +270,7 @@ Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
 {
     Eigen::Matrix3d r;
     Eigen::Vector3d UnitVec = Eigen::Vector3d::UnitZ();
-    
-    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(n, UnitVec);
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(UnitVec, n);
     return q.toRotationMatrix();
 
 }

@@ -81,7 +81,9 @@ bool SameLeaf(int i, int j) { return LeafIds[i] < LeafIds[j]; }
 rviz_visual_tools::RvizVisualToolsPtr VisualLine;
 rviz_visual_tools::RvizVisualToolsPtr VisualPlane;
 rviz_visual_tools::RvizVisualToolsPtr VisualArrow;
-
+// rviz_visual_tools::RvizVisualToolsPtr VisualPlane_;
+// rviz_visual_tools::RvizVisualToolsPtr VisualArrow_;
+// rviz_visual_tools::RvizVisualToolsPtr VisualLine_;
 // publish pointcloud
 ros::Publisher pubLaserCloud;
 ros::Publisher pubCornerPointsSharp;
@@ -97,15 +99,117 @@ Eigen::Matrix3d Iden = Eigen::Matrix3d::Identity();
 std::string LidarFrame = "/camera_init";
 
 const size_t kMaxNumberOfPoints = 1e5;
-double MINIMUM_RANGE = 1.0;
-Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2);
-double Line_Thres = 1.07;
 
-double SearchPlanePointDis = 2; // (m)
-double SuccessPlanePointDis = 0.02;
-double SuccessPlanePointRatioThres = 0.8;
+////////// Parameter //////////
 
+// Remove too closed points from lidar
+double LidarToPointsThres = 1.0;
 
+// Line
+double SortLinePointsThres = 1.15;
+double PointToLineThres = 0.1;
+
+// Plane
+Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2); // downsizefiltering to plane points
+double SearchPlanePointDis = 2.0; // (m)
+double PointToPlaneThres = 0.02;
+double SuccessPlanePointRatioThres = 0.8; // 80%
+// clustering plane
+double PointToPointThres = 5.0;
+
+std::vector<Line> SelectLine(  const std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel, 
+                                std::vector<std::vector<int>> CornerPointByChannelIdx)
+{
+    size_t StartChannelNum = 0;
+    int ChannelPass = 1;
+    std::vector<Line> line; 
+    while(StartChannelNum < 16){
+        for(size_t k = 0; k < CornerPointByChannel[StartChannelNum].size(); k++){
+            // int k = 0;
+
+            if(CornerPointByChannelIdx[StartChannelNum].size() == 0) 
+                continue;
+
+            if(CornerPointByChannelIdx[StartChannelNum][k] == 1) 
+                continue;
+            
+            std::vector<Eigen::Vector3d> ReferencePoint;
+            Line line_;
+            size_t cnt = 0;
+            for(size_t i = StartChannelNum ; i < CornerPointByChannel.size(); i ++){
+                
+
+                if(i == StartChannelNum){
+                    ReferencePoint.push_back(CornerPointByChannel[i][k]);
+                    line_.p1 = ReferencePoint[0];
+                    CornerPointByChannelIdx[i][k] = 1;
+                    continue;
+                }
+                
+                if(CornerPointByChannel[i].size() == 0){
+                    ChannelPass++;
+                    continue;
+                }
+                
+                double MinDist = 10;
+                int Minidx = 0;
+                for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
+                    double dist = PointDistance(ReferencePoint.back(), CornerPointByChannel[i][j]);
+
+                    if(MinDist > dist){
+                        MinDist = dist;
+                        Minidx = j;
+                    }
+                }
+                // double LidarToPoint = PointDistance(ReferencePoint);
+                double NextChannelPointDist = NextChannelPointDis(ReferencePoint.back(), VerticalAngelRatio * (float)ChannelPass);
+                // std::cout << "LidarToPoint : " << LidarToPoint << std::endl;
+                // std::cout << "Min distance : " << MinDist << std::endl;
+                // std::cout << "thres : " << thres << std::endl;
+                
+                if(MinDist > NextChannelPointDist * SortLinePointsThres ){ 
+                    ChannelPass = 1;
+                    break;
+                } 
+                // std::cout << "Line Min distance : " << MinDist << std::endl;
+
+                ReferencePoint.push_back(CornerPointByChannel[i][Minidx]);
+                CornerPointByChannelIdx[i][Minidx] = 1;
+                line_.p2 = ReferencePoint.back();
+                ChannelPass = 1;
+            }
+            if(ReferencePoint.size() > 2){
+                for(size_t i = 0; i < ReferencePoint.size(); i++){
+                    double PointToLineDis = Point2LineDistance(line_, ReferencePoint[i]);
+                    // std::cout << PointToLineDis << std::endl;
+                    if(PointToLineDis < PointToLineThres){
+                        cnt++;
+                    }
+                }
+                
+                if(ReferencePoint.size() == cnt)   
+                    line.push_back(line_);
+
+            }
+        }
+        // std::cout << StartChannelNum << std::endl;
+        StartChannelNum++;
+    }
+
+    std::cout << "Line Num : " << line.size() << std::endl;
+    return line;
+}
+
+std::vector<Line> ClusteringLine(std::vector<Line> line)
+{
+    std::vector<Line> MergedLine;
+
+    // Line Direction
+
+    // Distance Line to Line
+
+    return MergedLine;
+}
 
 std::vector<Eigen::Vector3d> PlanePointsforPlane(Eigen::Vector3d p)
 {
@@ -154,11 +258,11 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
         Plane plane_ = PlaneFromPoints(ReferencePlanePoint);
         
         // remove ground point
-        if(ZVec.cross(plane_.normal).norm() < 0.5) continue;
+        // if(ZVec.cross(plane_.normal).norm() < 0.5) continue;
         int cnt = 0;
         for(size_t i = 0; i < ReferencePlanePoint.size(); i++){
             double PointToPlaneDis = Point2PlaneDistance(plane_, ReferencePlanePoint[i]);
-            if(PointToPlaneDis < SuccessPlanePointDis){
+            if(PointToPlaneDis < PointToPlaneThres){
                 cnt++;
             }
 
@@ -172,6 +276,75 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
     std::cout << "Success Plane Num : " << plane.size() << std::endl;
     return plane;
 }
+
+std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
+{
+    std::vector<Plane> MergedPlane;
+    while(plane->size()){
+
+    
+        int InputPlane = 0;
+        std::vector<Plane> SamePlane;
+        std::vector<int> SamePlaneInd;
+        SamePlane.push_back((*plane)[InputPlane]);
+        SamePlaneInd.push_back(InputPlane);
+        for(size_t i = InputPlane + 1; i < plane->size(); i++){
+            
+            // Normal
+            double CrossNorm = ((*plane)[InputPlane].normal).cross((*plane)[i].normal).norm(); 
+            // std::cout << CrossNorm << std::endl;
+            
+            // Distance between Plane and Point(centroid)
+            double PointToPlane = Point2PlaneDistance((*plane)[InputPlane], (*plane)[i].centroid);
+            // std::cout << PointToPlane << std::endl; 
+            
+            // Distance between centroid
+            double PointToPoint = PointDistance((*plane)[InputPlane].centroid, (*plane)[i].centroid);
+            // std::cout << PointToPoint << std::endl;
+            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+                // std::cout << "cross norm value : " << CrossNorm << std::endl;
+                // std::cout << "centroid and plane distance : " << PointToPlane << std::endl;
+                // std::cout << "distance between Centroids: " << PointToPoint << std::endl;
+                SamePlane.push_back((*plane)[i]);
+                SamePlaneInd.push_back(i);
+            }
+        }
+
+        // Merge SamePlanes
+        Eigen::Vector3d c(0, 0, 0);
+        Eigen::Vector3d n(0, 0, 0);
+        Plane plane_;
+        for(size_t i = 0; i < SamePlane.size(); i++){
+            
+            if(n.dot(SamePlane[i].normal) < 0){
+                SamePlane[i].normal *= -1;
+            }
+            c += SamePlane[i].centroid;
+            n += SamePlane[i].normal;
+        }
+
+        plane_.centroid = c / (double)SamePlane.size();
+        plane_.normal = n / (double)SamePlane.size();
+        plane_.scale = 1.0 + (double)SamePlane.size() * 0.1;
+        // std::cout << SamePlane.size() << std::endl;
+        // std::cout << plane_.scale << std::endl;
+        
+        MergedPlane.push_back(plane_);
+        
+        // Erase Clustered Plane
+        int EraseInd = 0;
+        for(size_t i = 0; i < SamePlane.size(); i++){
+            plane->erase(plane->begin() + SamePlaneInd[i] - EraseInd);
+            EraseInd++;
+        }
+    }
+    std::cout << "Total Merged Plane Num : " << MergedPlane.size() << std::endl; 
+    return MergedPlane;
+        
+}
+
+
+
 
 // DownsizeFiltering
 void getMinMax(std::vector< Eigen::Vector3d > &inCloud, Eigen::Vector3d &minp, Eigen::Vector3d &maxp)
@@ -245,7 +418,7 @@ void RemoveClosedPointCloud(std::vector<Eigen::Vector3d> *pointcloud)
     for (size_t i = 0; i < pointcloud->size(); ++i)
     {
         double distance = PointDistance((*pointcloud)[i]);
-        if (distance * distance < MINIMUM_RANGE * MINIMUM_RANGE)
+        if (distance * distance < LidarToPointsThres * LidarToPointsThres)
             continue;
         CloudOut[j] = (*pointcloud)[i];
         j++;
@@ -495,7 +668,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
             for (int k = ep; k >= sp; k--){
                 int ind = cloudSortInd[k]; 
                 if (cloudNeighborPicked[ind] == 0 &&
-                    cloudCurvature[ind] > 1.0)
+                    cloudCurvature[ind] > 0.3)
                 {
 
                     largestPickedNum++;
@@ -670,86 +843,19 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     std::cout << "cornerPointsSharp num : " << cornerPointsSharp.size() << std::endl;
     std::cout << "cornerPointsLessSharp num : " << cornerPointsLessSharp.size() << std::endl;
     std::cout << "surfPointsFlat num : " << surfPointsFlat.size() << std::endl;
-    std::cout << "surfPointsLessFlat num : " << surfPointsLessFlat.size() << std::endl;
+    std::cout << "surfPointsLessFlat num : " << surfPointsLessFlat.size() << std::endl;    
+
     
     // Select Line
-    std::vector<Eigen::Vector3d> testpoints;
-    Eigen::Vector3d ReferencePoint;
-    size_t StartChannelNum = 0;
-    int TotalLineNum = 0;
-    std::vector<Line> linetests;
-    linetests.clear();
-    linetests.resize(cloudSize); 
-    while(StartChannelNum < 16){
-        for(size_t k = 0; k < CornerPointByChannel[StartChannelNum].size(); k++){
-            // int k = 0;
-
-            if(CornerPointByChannelIdx[StartChannelNum].size() == 0) 
-                continue;
-
-            if(CornerPointByChannelIdx[StartChannelNum][k] == 1) 
-                continue;
-                
-            for(size_t i = StartChannelNum ; i < CornerPointByChannel.size(); i ++){
-                
-
-                if(i == StartChannelNum){
-                    ReferencePoint = CornerPointByChannel[i][k];
-                    testpoints.push_back(ReferencePoint);
-                    linetests[TotalLineNum].p1 = ReferencePoint;
-                    CornerPointByChannelIdx[i][k] = 1;
-                    continue;
-                }
-                
-                double MinDist = 10;
-                int Minidx = 0;
-                if(CornerPointByChannel[i].size() == 0) continue;
-                for(size_t j = 0; j < CornerPointByChannel[i].size(); j ++){
-                    double dist = PointDistance(ReferencePoint, CornerPointByChannel[i][j]);
-
-                    if(MinDist > dist){
-                        MinDist = dist;
-                        Minidx = j;
-                    }
-                }
-                // double LidarToPoint = PointDistance(ReferencePoint);
-                double thres = LineThres(ReferencePoint, VerticalAngelRatio);
-                // std::cout << "LidarToPoint : " << LidarToPoint << std::endl;
-                // std::cout << "Min distance : " << MinDist << std::endl;
-                // std::cout << "thres : " << thres << std::endl;
-                
-                if(MinDist > thres * Line_Thres ){ 
-                    // ChannelPass++;
-                    break;
-                } 
-                // std::cout << "Line Min distance : " << MinDist << std::endl;
-
-                ReferencePoint = CornerPointByChannel[i][Minidx];
-                CornerPointByChannelIdx[i][Minidx] = 1;
-                Eigen::Vector3d testpoint;
-                testpoint << CornerPointByChannel[i][Minidx];
-                // std::cout << testpoint << std::endl;
-                testpoints.push_back(testpoint);
-                linetests[TotalLineNum].p2 = testpoint;
-            }
-            TotalLineNum++;
-        }
-        // std::cout << StartChannelNum << std::endl;
-        StartChannelNum++;
-    }
-    std::vector<Line> line;
-    line.clear();
-    int line_num = 0;
-    for(size_t i = 0; i < linetests.size(); i++){
-        if(linetests[i].p2 == Origin) continue;
-        line.push_back(linetests[i]);
-        // std::cout << Point2LineDistance(line[line_num], Origin) << std::endl;
-        line_num++;
-    }
-    
+    std::vector<Line> line = SelectLine(CornerPointByChannel, CornerPointByChannelIdx);
+    // std::vector<Line> MergedLine ClusteringLine(&line);
     
     // Select Plane
     std::vector<Plane> plane = SelectPlane(surfPointsFlat);
+    // PublishPlane(VisualPlane_, plane);
+    // PublishPlaneNormal(VisualArrow_, plane);    
+    std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
+    
 
 
     // Publish Points
@@ -764,8 +870,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // Publish Line and Plane
     PublishLine(VisualLine, line);
-    PublishPlane(VisualPlane, plane);
-    PublishPlaneNormal(VisualArrow, plane);
+    PublishPlane(VisualPlane, MergedPlane);
+    PublishPlaneNormal(VisualArrow, MergedPlane);
 
     printf("scan registration time %f ms *************\n", t_whole.toc());
     if(t_whole.toc() > 100)
@@ -778,7 +884,7 @@ int main(int argc, char **argv)
     ros::NodeHandle nh("~");
 
     nh.param<int>("scan_line", N_SCANS, 16);
-    nh.param<double>("minimum_range", MINIMUM_RANGE, 5.0);
+    nh.param<double>("LidarToPointsThres", LidarToPointsThres, 5.0);
 
     //printf("scan line number %d \n", N_SCANS);
 
@@ -803,11 +909,20 @@ int main(int argc, char **argv)
     VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line"));
     VisualLine->loadMarkerPub();
 
+    // VisualLine_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line2"));
+    // VisualLine_->loadMarkerPub();
+
     VisualArrow.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/planeNormal"));
     VisualArrow->loadMarkerPub();
     
     VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane"));
     VisualPlane->loadMarkerPub();
+
+    // VisualPlane_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane2"));
+    // VisualPlane_->loadMarkerPub();
+
+    // VisualArrow_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/planeNormal2"));
+    // VisualArrow_->loadMarkerPub();
 
     ros::spin();
 
