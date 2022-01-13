@@ -59,6 +59,7 @@ struct Line
 {
     Eigen::Vector3d p1;
     Eigen::Vector3d p2;
+    int id;
     // Eigen::Vector3d vec = p2 - p1;
 };
 
@@ -66,7 +67,8 @@ struct Plane
 {
     Eigen::Vector3d normal;
     Eigen::Vector3d centroid;
-    double scale = 1.0;
+    double scale = 2.0;
+    int id;
 };
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
@@ -94,7 +96,7 @@ void PublishLine(const rviz_visual_tools::RvizVisualToolsPtr VisualLine, const s
 {
     VisualLine->deleteAllMarkers();
     for(size_t i = 0; i < line.size(); i++)
-        VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::GREEN, rviz_visual_tools::LARGE);
+        VisualLine->publishLine(line[i].p1, line[i].p2, rviz_visual_tools::BLUE, rviz_visual_tools::XLARGE);
     VisualLine->trigger();
 }
 

@@ -24,32 +24,33 @@ find_package( Boost REQUIRED COMPONENTS
 timer )
  
 
-find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(Ceres REQUIRED)
+# find_package(Ceres REQUIRED)
 
 
 
 include_directories(
   include
 	${catkin_INCLUDE_DIRS} 
-	${PCL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
 )
 
 catkin_package(
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
-  DEPENDS EIGEN3 PCL visualization_msgs 
+  DEPENDS EIGEN3 visualization_msgs 
   INCLUDE_DIRS include
 )
 
 
 add_executable(ascanRegistration src/scanRegistration.cpp)
-target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(aFeatureTracking src/FeatureTracking.cpp)
+target_link_libraries(aFeatureTracking ${catkin_LIBRARIES}  ${OpenCV_LIBS})
 
 add_executable(PublishLidarData2 src/PublishLidarData2.cpp)
-target_link_libraries(PublishLidarData2 glog ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(PublishLidarData2 glog ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 
 

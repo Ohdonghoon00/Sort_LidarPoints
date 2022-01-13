@@ -66,6 +66,8 @@ std::vector<Eigen::Vector3d> cornerPointsLessSharp;
 std::vector<Eigen::Vector3d> surfPointsFlat;
 std::vector<Eigen::Vector3d> surfPointsLessFlat;
 
+std::vector<std::vector<Eigen::Vector3d>> ReferencePlanePoints;
+
 std::vector<int> FeatureNumByScan(N_SCANS);
 std::vector<std::vector<int>> PointIndexByChannel; // ( edge → 0 , plane → 1 , pass point → -1, occluded/parallel → -2 )
 
@@ -112,10 +114,25 @@ double PointToLineThres = 0.1;
 // Plane
 Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2); // downsizefiltering to plane points
 double SearchPlanePointDis = 2.0; // (m)
-double PointToPlaneThres = 0.02;
+double PointToPlaneThres = 0.03;
 double SuccessPlanePointRatioThres = 0.8; // 80%
 // clustering plane
-double PointToPointThres = 5.0;
+double PointToPointThres = 7.0;
+
+double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
+{
+    double MaxDis = 0;
+    for(auto i : RefPoints){
+        for(auto j : RefPoints){
+
+            double Dis = PointDistance(i, j);
+            if(MaxDis < Dis)
+                MaxDis = Dis;
+        }
+    }
+
+    return MaxDis;
+}
 
 std::vector<Line> SelectLine(  const std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel, 
                                 std::vector<std::vector<int>> CornerPointByChannelIdx)
@@ -211,7 +228,7 @@ std::vector<Line> ClusteringLine(std::vector<Line> line)
     return MergedLine;
 }
 
-std::vector<Eigen::Vector3d> PlanePointsforPlane(Eigen::Vector3d p)
+std::vector<Eigen::Vector3d> PlanePointsforPlane(const Eigen::Vector3d p)
 {
     std::vector<Eigen::Vector3d> PlanePoints;
     
@@ -225,7 +242,7 @@ std::vector<Eigen::Vector3d> PlanePointsforPlane(Eigen::Vector3d p)
     return PlanePoints;
 }
 
-Plane PlaneFromPoints(std::vector<Eigen::Vector3d> p)
+Plane PlaneFromPoints(const std::vector<Eigen::Vector3d> p)
 {
     Plane plane;
 
@@ -259,6 +276,7 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
         
         // remove ground point
         // if(ZVec.cross(plane_.normal).norm() < 0.5) continue;
+        
         int cnt = 0;
         for(size_t i = 0; i < ReferencePlanePoint.size(); i++){
             double PointToPlaneDis = Point2PlaneDistance(plane_, ReferencePlanePoint[i]);
@@ -269,17 +287,21 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
         }
         double SuccessPlanePointRatio = (double)cnt / (double)ReferencePlanePoint.size();
         // std::cout << "Success plane Point Ratio : " << SuccessPlanePointRatio << std::endl;
-        if(SuccessPlanePointRatio > SuccessPlanePointRatioThres)
+        if(SuccessPlanePointRatio > SuccessPlanePointRatioThres){
             plane.push_back(plane_);
+            ReferencePlanePoints.push_back(ReferencePlanePoint);
+        }
 
     }
-    std::cout << "Success Plane Num : " << plane.size() << std::endl;
+    std::cout << "Selected Plane Num : " << plane.size() << std::endl;
     return plane;
 }
 
 std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
 {
     std::vector<Plane> MergedPlane;
+    std::vector<std::vector<Eigen::Vector3d>> RefPlanePoints(ReferencePlanePoints);
+    ReferencePlanePoints.clear();
     while(plane->size()){
 
     
@@ -314,8 +336,13 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         Eigen::Vector3d c(0, 0, 0);
         Eigen::Vector3d n(0, 0, 0);
         Plane plane_;
+        std::vector<Eigen::Vector3d> RefPlanePoint;
         for(size_t i = 0; i < SamePlane.size(); i++){
             
+            // Ref Plane Points
+            for(auto j : RefPlanePoints[SamePlaneInd[i]])
+                RefPlanePoint.push_back(j);
+
             if(n.dot(SamePlane[i].normal) < 0){
                 SamePlane[i].normal *= -1;
             }
@@ -323,9 +350,15 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
             n += SamePlane[i].normal;
         }
 
+        double ScaleDis = MaxPointsDis(RefPlanePoint);
+        std::cout << ScaleDis << std::endl;
+        ReferencePlanePoints.push_back(RefPlanePoint);
+
+
         plane_.centroid = c / (double)SamePlane.size();
         plane_.normal = n / (double)SamePlane.size();
-        plane_.scale = 1.0 + (double)SamePlane.size() * 0.1;
+        // plane_.scale = 1.0 + (double)SamePlane.size() * 0.1;
+        plane_.scale = ScaleDis / 2.0;
         // std::cout << SamePlane.size() << std::endl;
         // std::cout << plane_.scale << std::endl;
         
@@ -335,6 +368,7 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         int EraseInd = 0;
         for(size_t i = 0; i < SamePlane.size(); i++){
             plane->erase(plane->begin() + SamePlaneInd[i] - EraseInd);
+            RefPlanePoints.erase(RefPlanePoints.begin() + SamePlaneInd[i] - EraseInd);
             EraseInd++;
         }
     }
@@ -343,6 +377,10 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         
 }
 
+std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
+{
+
+}
 
 
 
@@ -851,10 +889,17 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // std::vector<Line> MergedLine ClusteringLine(&line);
     
     // Select Plane
+    ReferencePlanePoints.clear();
     std::vector<Plane> plane = SelectPlane(surfPointsFlat);
     // PublishPlane(VisualPlane_, plane);
     // PublishPlaneNormal(VisualArrow_, plane);    
     std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
+    
+    // Visualize Reference Plane Points
+    std::vector<Eigen::Vector3d> VisualRefPlanePoints;
+    for(int i = 0; i < ReferencePlanePoints.size(); i++)
+        for(int j = 0; j < ReferencePlanePoints[i].size(); j++)
+            VisualRefPlanePoints.push_back(ReferencePlanePoints[i][j]);
     
 
 
@@ -866,7 +911,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubSurfPointsLessFlat, surfPointsLessFlat, laserCloudMsg->header.stamp, LidarFrame);
 
     // pub testpoints
-    // PublishPointCloud(pubReferencePlanePoints, ReferencePlanePoint, laserCloudMsg->header.stamp, LidarFrame);
+    PublishPointCloud(pubReferencePlanePoints, VisualRefPlanePoints, laserCloudMsg->header.stamp, LidarFrame);
 
     // Publish Line and Plane
     PublishLine(VisualLine, line);
@@ -904,7 +949,7 @@ int main(int argc, char **argv)
 
     pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100);
 
-    // pubReferencePlanePoints = nh.advertise<sensor_msgs::PointCloud2>("/ReferencePlanePoints", 100);
+    pubReferencePlanePoints = nh.advertise<sensor_msgs::PointCloud2>("/ReferencePlanePoints", 100);
 
     VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line"));
     VisualLine->loadMarkerPub();

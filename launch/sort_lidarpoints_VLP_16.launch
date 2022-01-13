@@ -28,8 +28,8 @@
 
     <!-- nodes -->
     <node pkg="sort_lidarpoints" type="ascanRegistration" name="ascanRegistration" output="screen" />
-    <!-- <node pkg="aloam_velodyne" type="alaserOdometry" name="alaserOdometry" output="screen" />
-    <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />
+    <node pkg="sort_lidarpoints" type="aFeatureTracking" name="aFeatureTracking" output="screen" />
+    <!--<node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />
     <node pkg="aloam_velodyne" type="alaserPGO" name="alaserPGO" output="screen" /> SC-A-LOAM -->
 
     <!-- visulaization -->

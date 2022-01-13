@@ -582,7 +582,7 @@ Visualization Manager:
       Name: Line     
   Enabled: true
   Global Options:
-    Background Color: 0; 0; 0
+    Background Color: 136; 138; 133
     Default Light: true
     Fixed Frame: camera_init
     Frame Rate: 30
