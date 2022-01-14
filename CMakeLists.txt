@@ -10,15 +10,16 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs
   sensor_msgs
+  std_msgs
+  visualization_msgs
   roscpp
   rospy
   rosbag
-  std_msgs
   image_transport
   cv_bridge
   tf
-  visualization_msgs
   rviz_visual_tools
+  message_generation
 )
 find_package( Boost REQUIRED COMPONENTS 
 timer )
@@ -27,7 +28,20 @@ timer )
 find_package(OpenCV REQUIRED)
 # find_package(Ceres REQUIRED)
 
+add_message_files(
+  DIRECTORY msg
+  FILES
+  feature_info.msg
+)
 
+generate_messages(
+  DEPENDENCIES
+  geometry_msgs
+  std_msgs
+  nav_msgs
+  sensor_msgs
+  visualization_msgs
+)
 
 include_directories(
   include
@@ -38,7 +52,7 @@ include_directories(
 
 catkin_package(
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
-  DEPENDS EIGEN3 visualization_msgs 
+  DEPENDS EIGEN3 visualization_msgs sensor_msgs
   INCLUDE_DIRS include
 )
 

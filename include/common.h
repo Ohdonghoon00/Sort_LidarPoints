@@ -45,6 +45,8 @@
 #include <visualization_msgs/MarkerArray.h>
 #include <ros/ros.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
+#include "sort_lidarpoints/feature_info.h"
+
 
 
 struct Line;
@@ -60,7 +62,6 @@ struct Line
     Eigen::Vector3d p1;
     Eigen::Vector3d p2;
     int id;
-    // Eigen::Vector3d vec = p2 - p1;
 };
 
 struct Plane
@@ -70,6 +71,88 @@ struct Plane
     double scale = 2.0;
     int id;
 };
+
+void FeatureToMsg(  sort_lidarpoints::feature_info &msg, 
+                    const std::vector<Line> line,
+                    const std::vector<Plane> plane)
+{
+    // Line information
+    for(size_t i = 0; i < line.size(); i++){
+        
+        msg.p1[3 * i]     = line[i].p1.x();
+        msg.p1[3 * i + 1] = line[i].p1.y();
+        msg.p1[3 * i + 2] = line[i].p1.z();
+
+        msg.p2[3 * i]     = line[i].p2.x();
+        msg.p2[3 * i + 1] = line[i].p2.y();
+        msg.p2[3 * i + 2] = line[i].p2.z();
+    }
+
+    // Plane information
+    for(size_t i = 0; i < plane.size(); i++){
+        
+        msg.normal[3 * i]     = plane[i].normal.x();
+        msg.normal[3 * i + 1] = plane[i].normal.y();
+        msg.normal[3 * i + 2] = plane[i].normal.z();
+
+        msg.centroid[3 * i]     = plane[i].centroid.x();
+        msg.centroid[3 * i + 1] = plane[i].centroid.y();
+        msg.centroid[3 * i + 2] = plane[i].centroid.z();
+
+        msg.scale[i] = plane[i].scale;
+    }
+}
+
+void MsgToFeature(  const sort_lidarpoints::feature_infoConstPtr &FeatureMsg,
+                    std::vector<Line> &line, std::vector<Plane> &plane)
+{
+    // Line Information
+    for(size_t i = 0; i < (FeatureMsg->p1.size() / 3); i++){
+        
+        line[i].p1.x() = FeatureMsg->p1[3 * i];
+        line[i].p1.y() = FeatureMsg->p1[3 * i + 1];
+        line[i].p1.z() = FeatureMsg->p1[3 * i + 2];
+
+        line[i].p2.x() = FeatureMsg->p2[3 * i];
+        line[i].p2.y() = FeatureMsg->p2[3 * i + 1];
+        line[i].p2.z() = FeatureMsg->p2[3 * i + 2];
+    }
+
+    // Plane Information
+    for(size_t i = 0; i < (FeatureMsg->normal.size() / 3); i++){
+
+        plane[i].normal.x() = FeatureMsg->normal[3 * i];
+        plane[i].normal.y() = FeatureMsg->normal[3 * i + 1];
+        plane[i].normal.z() = FeatureMsg->normal[3 * i + 2];
+
+        plane[i].centroid.x() = FeatureMsg->centroid[3 * i];
+        plane[i].centroid.y() = FeatureMsg->centroid[3 * i + 1];
+        plane[i].centroid.z() = FeatureMsg->centroid[3 * i + 2];
+
+        plane[i].scale = FeatureMsg->scale[i];
+    }
+}
+
+void PublishFeature(const ros::Publisher &publisher, const std::vector<Line> line, const std::vector<Plane> plane, const ros::Time &timestamp, const std::string &frameid)
+{
+    sort_lidarpoints::feature_info pubmsg;
+    
+    // memory
+    pubmsg.p1.assign(line.size() * 3, 0);
+    pubmsg.p2.assign(line.size() * 3, 0);
+    pubmsg.normal.assign(plane.size() * 3, 0);
+    pubmsg.centroid.assign(plane.size() * 3, 0);
+    pubmsg.scale.assign(plane.size(), 0);
+    
+    FeatureToMsg(pubmsg, line, plane);
+    
+    // pubmsg.header.stamp = timestamp;
+    // pubmsg.header.frame_id = frameid;
+
+    publisher.publish(pubmsg);    
+}
+
+
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)
 {
@@ -92,7 +175,7 @@ void PublishLine(const ros::Publisher &publisher, const std::vector<Line> &line,
     publisher.publish(pubmsg);    
 }
 
-void PublishLine(const rviz_visual_tools::RvizVisualToolsPtr VisualLine, const std::vector<Line> line)
+void VisualizeLine(const rviz_visual_tools::RvizVisualToolsPtr VisualLine, const std::vector<Line> line)
 {
     VisualLine->deleteAllMarkers();
     for(size_t i = 0; i < line.size(); i++)
@@ -100,7 +183,7 @@ void PublishLine(const rviz_visual_tools::RvizVisualToolsPtr VisualLine, const s
     VisualLine->trigger();
 }
 
-void PublishPlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const std::vector<Plane> plane)
+void VisualizePlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const std::vector<Plane> plane)
 {
    VisualPlane->deleteAllMarkers();
    // Publish Plane
@@ -109,7 +192,9 @@ void PublishPlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const
         Eigen::Isometry3d VisualizePlane;
         VisualizePlane.translation() = plane[i].centroid;
         VisualizePlane.linear() = NormalToRotation(plane[i].normal);
-        VisualPlane->publishXYPlane(VisualizePlane, rviz_visual_tools::TRANSLUCENT_DARK, plane[i].scale   );
+        std::string id = std::to_string(plane[i].id);
+        VisualPlane->publishXYPlane(VisualizePlane, rviz_visual_tools::TRANSLUCENT_DARK, plane[i].scale);
+        VisualPlane->publishText(VisualizePlane, id, rviz_visual_tools::WHITE, rviz_visual_tools::XXXXLARGE, false);
         VisualPlane->trigger();
    }    
 }
@@ -117,7 +202,7 @@ void PublishPlane(const rviz_visual_tools::RvizVisualToolsPtr VisualPlane, const
 
 
 
-void PublishPlaneNormal(const rviz_visual_tools::RvizVisualToolsPtr VisualPlaneNormal, const std::vector<Plane> plane)
+void VisualizePlaneNormal(const rviz_visual_tools::RvizVisualToolsPtr VisualPlaneNormal, const std::vector<Plane> plane)
 {
     VisualPlaneNormal->deleteAllMarkers();
     // publish plane normal
@@ -253,6 +338,10 @@ double Point2LineDistance(Line l, Eigen::Vector3d p){
     return ((p - l.p1).cross(p - l.p2)).norm() / (l.p1 - l.p2).norm();
 }
 
+double LineToLineDistance(Line l1, Line l2){
+    //
+}
+
 double CosRaw2(double a, double b, float ang){
     return sqrt(a * a + b * b - 2 * a * b * cos(ang * M_PI / 180));
 }
@@ -274,7 +363,6 @@ Eigen::Matrix3d NormalToRotation(Eigen::Vector3d n)
     Eigen::Vector3d UnitVec = Eigen::Vector3d::UnitZ();
     Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(UnitVec, n);
     return q.toRotationMatrix();
-
 }
 
 double Point2PlaneDistance(Plane p, Eigen::Vector3d x)

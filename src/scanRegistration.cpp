@@ -46,6 +46,7 @@
 
 #include "common.h"
 #include "tic_toc.h"
+#include "sort_lidarpoints/feature_info.h"
 
 
 const int systemDelay = 0; 
@@ -79,13 +80,6 @@ std::vector<int> LeafIds;
 bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
 bool SameLeaf(int i, int j) { return LeafIds[i] < LeafIds[j]; }
 
-// Visualize Plane and Line
-rviz_visual_tools::RvizVisualToolsPtr VisualLine;
-rviz_visual_tools::RvizVisualToolsPtr VisualPlane;
-rviz_visual_tools::RvizVisualToolsPtr VisualArrow;
-// rviz_visual_tools::RvizVisualToolsPtr VisualPlane_;
-// rviz_visual_tools::RvizVisualToolsPtr VisualArrow_;
-// rviz_visual_tools::RvizVisualToolsPtr VisualLine_;
 // publish pointcloud
 ros::Publisher pubLaserCloud;
 ros::Publisher pubCornerPointsSharp;
@@ -93,6 +87,10 @@ ros::Publisher pubCornerPointsLessSharp;
 ros::Publisher pubSurfPointsFlat;
 ros::Publisher pubSurfPointsLessFlat;
 ros::Publisher pubReferencePlanePoints;
+
+// publish Line and Plane
+ros::Publisher pubFeature;
+
 
 float VerticalAngelRatio = 0;
 Eigen::Vector3d Origin{0.0, 0.0, 0.0};
@@ -117,7 +115,7 @@ double SearchPlanePointDis = 2.0; // (m)
 double PointToPlaneThres = 0.03;
 double SuccessPlanePointRatioThres = 0.8; // 80%
 // clustering plane
-double PointToPointThres = 7.0;
+double PointToPointThres = 5.0;
 
 double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
 {
@@ -351,7 +349,7 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         }
 
         double ScaleDis = MaxPointsDis(RefPlanePoint);
-        std::cout << ScaleDis << std::endl;
+        // std::cout << ScaleDis << std::endl;
         ReferencePlanePoints.push_back(RefPlanePoint);
 
 
@@ -897,8 +895,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     
     // Visualize Reference Plane Points
     std::vector<Eigen::Vector3d> VisualRefPlanePoints;
-    for(int i = 0; i < ReferencePlanePoints.size(); i++)
-        for(int j = 0; j < ReferencePlanePoints[i].size(); j++)
+    for(size_t i = 0; i < ReferencePlanePoints.size(); i++)
+        for(size_t j = 0; j < ReferencePlanePoints[i].size(); j++)
             VisualRefPlanePoints.push_back(ReferencePlanePoints[i][j]);
     
 
@@ -914,9 +912,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubReferencePlanePoints, VisualRefPlanePoints, laserCloudMsg->header.stamp, LidarFrame);
 
     // Publish Line and Plane
-    PublishLine(VisualLine, line);
-    PublishPlane(VisualPlane, MergedPlane);
-    PublishPlaneNormal(VisualArrow, MergedPlane);
+    PublishFeature(pubFeature, line, MergedPlane, laserCloudMsg->header.stamp, LidarFrame);
 
     printf("scan registration time %f ms *************\n", t_whole.toc());
     if(t_whole.toc() > 100)
@@ -951,23 +947,7 @@ int main(int argc, char **argv)
 
     pubReferencePlanePoints = nh.advertise<sensor_msgs::PointCloud2>("/ReferencePlanePoints", 100);
 
-    VisualLine.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line"));
-    VisualLine->loadMarkerPub();
-
-    // VisualLine_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/line2"));
-    // VisualLine_->loadMarkerPub();
-
-    VisualArrow.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/planeNormal"));
-    VisualArrow->loadMarkerPub();
-    
-    VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane"));
-    VisualPlane->loadMarkerPub();
-
-    // VisualPlane_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane2"));
-    // VisualPlane_->loadMarkerPub();
-
-    // VisualArrow_.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/planeNormal2"));
-    // VisualArrow_->loadMarkerPub();
+    pubFeature = nh.advertise<sort_lidarpoints::feature_info>("/featureInfo", 100);
 
     ros::spin();
 

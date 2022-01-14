@@ -60,6 +60,7 @@
         "typeinfo": "cpp",
         "core": "cpp",
         "numericaldiff": "cpp",
-        "*.ipp": "cpp"
+        "*.ipp": "cpp",
+        "*.txx": "cpp"
     }
 }
