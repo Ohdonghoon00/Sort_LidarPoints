@@ -62,6 +62,7 @@ struct Line
     Eigen::Vector3d p1;
     Eigen::Vector3d p2;
     int id;
+    Eigen::Vector3d directionVec() {return p2 - p1;}
 };
 
 struct Plane
@@ -339,7 +340,16 @@ double Point2LineDistance(Line l, Eigen::Vector3d p){
 }
 
 double LineToLineDistance(Line l1, Line l2){
-    //
+    
+    if(0)
+        ;// parallel
+    else{
+        
+        Eigen::Vector3d b1 = l1.directionVec();
+        Eigen::Vector3d b2 = l2.directionVec();
+        Eigen::Vector3d normal = b1.cross(b2);
+        return std::abs((l1.p1 - l2.p1).dot(normal)) / normal.norm();
+    }
 }
 
 double CosRaw2(double a, double b, float ang){

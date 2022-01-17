@@ -43,6 +43,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <set>
 
 #include "common.h"
 #include "tic_toc.h"
@@ -115,7 +116,8 @@ double SearchPlanePointDis = 2.0; // (m)
 double PointToPlaneThres = 0.03;
 double SuccessPlanePointRatioThres = 0.8; // 80%
 // clustering plane
-double PointToPointThres = 5.0;
+double PointToPointThres = 6.0;
+double OverlapRatiothres = 0.2;
 
 double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
 {
@@ -130,6 +132,24 @@ double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
     }
 
     return MaxDis;
+}
+
+double OverlapRatio(const std::vector<Eigen::Vector3d> InputRefPoints,
+                    const std::vector<Eigen::Vector3d> RefPoints)
+{
+    
+    int TotalSize = std::min(InputRefPoints.size(), RefPoints.size());
+    int cnt = 0;
+    for(auto i : RefPoints){
+        for(auto j : InputRefPoints){
+            if(i == j){
+                cnt++;
+                continue;
+            }
+        }
+    }
+    double Ratio = (double)cnt / (double)TotalSize;
+    return Ratio;
 }
 
 std::vector<Line> SelectLine(  const std::vector<std::vector<Eigen::Vector3d>> CornerPointByChannel, 
@@ -370,6 +390,17 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
             EraseInd++;
         }
     }
+
+    // Erase same point
+
+    // std::cout <<  << std::endl;
+    // for(size_t i = 0; i < ReferencePlanePoints.size(); i++){
+        
+    //     std::set<Eigen::Vector3d> set_ReferencePlanePoints(ReferencePlanePoints[i].begin(), ReferencePlanePoints[i].end());
+    //     // ReferencePlanePoints
+    // }
+
+
     std::cout << "Total Merged Plane Num : " << MergedPlane.size() << std::endl; 
     return MergedPlane;
         
@@ -377,10 +408,154 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
 
 std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
 {
+    std::vector<Plane> MergedPlane;
+    std::vector<std::vector<Eigen::Vector3d>> RefPlanePoints(ReferencePlanePoints);
+    ReferencePlanePoints.clear();
+    
+    Plane CurrMergePlane = plane->front();
+    std::vector<Eigen::Vector3d> RefPlanePoint(RefPlanePoints.front());
+    plane->erase(plane->begin());
+    RefPlanePoints.erase(RefPlanePoints.begin());
+    
+    while(plane->size()){
+        
+        double MinDis = 100.0;
+        int idx = -1;
+        Plane InputPlane = CurrMergePlane;
+        for(size_t i = 0; i < plane->size(); i++){
+            
+            // Normal
+            double CrossNorm = InputPlane.normal.cross((*plane)[i].normal).norm(); 
+            // std::cout << CrossNorm << std::endl;
+            
+            // Distance between Plane and Point(centroid)
+            double PointToPlane = Point2PlaneDistance(InputPlane, (*plane)[i].centroid);
+            // std::cout << PointToPlane << std::endl; 
+            
+            // Distance between centroid
+            double PointToPoint = PointDistance(InputPlane.centroid, (*plane)[i].centroid);
+            // std::cout << PointToPoint << std::endl;
+            
+            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+                
+                if(MinDis > PointToPoint){
+                    MinDis = PointToPoint;
+                    idx = i;
+                }
 
+            }
+        }
+                
+        // merged plane
+        if(idx == -1){
+            
+            double ScaleDis = MaxPointsDis(RefPlanePoint); 
+            CurrMergePlane.scale = ScaleDis / 2.0;            
+            MergedPlane.push_back(CurrMergePlane);
+            CurrMergePlane = plane->front();
+            plane->erase(plane->begin());
+            
+            ReferencePlanePoints.push_back(RefPlanePoint);
+            RefPlanePoint = RefPlanePoints.front();
+            RefPlanePoints.erase(RefPlanePoints.begin());
+        }
+        else{
+        
+            CurrMergePlane.centroid = (InputPlane.centroid + (*plane)[idx].centroid) / 2;
+            if(InputPlane.normal.dot((*plane)[idx].normal) < 0) InputPlane.normal *= -1;
+            CurrMergePlane.normal = (InputPlane.normal + (*plane)[idx].normal) / 2;
+            
+            // Visualize Plane Scale
+            for(auto i : RefPlanePoints[idx])
+                RefPlanePoint.push_back(i);
+            
+            plane->erase(plane->begin() + idx);
+            RefPlanePoints.erase(RefPlanePoints.begin() + idx);
+        }
+        
+
+    
+    }
+
+
+    return MergedPlane;
 }
 
+void MergedOverlappedPlane(std::vector<Plane> *plane)
+{
+    std::vector<Plane> copy_plane(*plane);
+    plane->clear();
+    std::vector<std::vector<Eigen::Vector3d>> RefPlanePoints(ReferencePlanePoints);
+    ReferencePlanePoints.clear();
+    
+    Plane InputPlane(copy_plane.front());
+    copy_plane.erase(copy_plane.begin());
+    std::vector<Eigen::Vector3d> RefPlanePoint(RefPlanePoints.front());
+    RefPlanePoints.erase(RefPlanePoints.begin());
+    
 
+    while(copy_plane.size()){
+        
+        std::vector<Plane> SamePlanes;
+        std::vector<int> SamePlanesInd;
+        SamePlanes.push_back(InputPlane);
+        bool IsSamePlane = false;
+        
+        for(size_t i = 0; i < copy_plane.size(); i++){
+
+            // Normal
+            double CrossNorm = InputPlane.normal.cross(copy_plane[i].normal).norm(); 
+            
+            // Distance between Plane and Point(centroid)
+            double PointToPlane = Point2PlaneDistance(InputPlane, copy_plane[i].centroid);
+            
+            // Distance between centroid
+            double PointToPoint = PointDistance(InputPlane.centroid, copy_plane[i].centroid);
+            
+            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+                
+                // Calculate Overlap Ratio
+                double Ratio = OverlapRatio(RefPlanePoint, RefPlanePoints[i]);
+                if(Ratio > OverlapRatiothres){
+                    SamePlanes.push_back(copy_plane[i]);
+                    SamePlanesInd.push_back(i);
+                    IsSamePlane = true;
+                    std::cout << Ratio << std::endl;
+                }
+            }
+        }
+            
+        if(IsSamePlane){
+            
+            // input biggest size of SamePlanes
+            plane->push_back(InputPlane);
+            int EraseInd = 0;
+            for(auto i : SamePlanesInd){
+                copy_plane.erase(copy_plane.begin() + i - EraseInd);
+                RefPlanePoints.erase(RefPlanePoints.begin() + i - EraseInd);
+                EraseInd++;
+            }
+            
+            InputPlane = copy_plane.front();
+            copy_plane.erase(copy_plane.begin());
+
+            RefPlanePoint = RefPlanePoints.front();
+            RefPlanePoints.erase(RefPlanePoints.begin());
+        }
+        else{
+            
+            plane->push_back(InputPlane);
+            
+            InputPlane = copy_plane.front();
+            copy_plane.erase(copy_plane.begin());
+            
+            RefPlanePoint = RefPlanePoints.front();
+            RefPlanePoints.erase(RefPlanePoints.begin());
+        }
+            
+    }
+    
+}
 
 // DownsizeFiltering
 void getMinMax(std::vector< Eigen::Vector3d > &inCloud, Eigen::Vector3d &minp, Eigen::Vector3d &maxp)
@@ -892,7 +1067,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // PublishPlane(VisualPlane_, plane);
     // PublishPlaneNormal(VisualArrow_, plane);    
     std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
-    
+    MergedOverlappedPlane(&MergedPlane);
+
     // Visualize Reference Plane Points
     std::vector<Eigen::Vector3d> VisualRefPlanePoints;
     for(size_t i = 0; i < ReferencePlanePoints.size(); i++)
