@@ -113,11 +113,11 @@ double PointToLineThres = 0.1;
 // Plane
 Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2); // downsizefiltering to plane points
 double SearchPlanePointDis = 2.0; // (m)
-double PointToPlaneThres = 0.03;
+double PointToPlaneThres = 0.02;
 double SuccessPlanePointRatioThres = 0.8; // 80%
 // clustering plane
 double PointToPointThres = 6.0;
-double OverlapRatiothres = 0.2;
+double OverlapRatiothres = 0.7;
 
 double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
 {
@@ -144,11 +144,12 @@ double OverlapRatio(const std::vector<Eigen::Vector3d> InputRefPoints,
         for(auto j : InputRefPoints){
             if(i == j){
                 cnt++;
-                continue;
+                break;
             }
         }
     }
     double Ratio = (double)cnt / (double)TotalSize;
+    std::cout << "Ratio : " << Ratio << std::endl;
     return Ratio;
 }
 
@@ -311,7 +312,6 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
         }
 
     }
-    std::cout << "Selected Plane Num : " << plane.size() << std::endl;
     return plane;
 }
 
@@ -357,16 +357,20 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         std::vector<Eigen::Vector3d> RefPlanePoint;
         for(size_t i = 0; i < SamePlane.size(); i++){
             
-            // Ref Plane Points
-            for(auto j : RefPlanePoints[SamePlaneInd[i]])
-                RefPlanePoint.push_back(j);
-
+            // Merge and if there is a same point, delete it
+            for(auto j : RefPlanePoints[SamePlaneInd[i]]){
+                
+                auto it = std::find(RefPlanePoint.begin(), RefPlanePoint.end(), j);
+                if(it == RefPlanePoint.end())
+                    RefPlanePoint.push_back(j);
+            }
             if(n.dot(SamePlane[i].normal) < 0){
                 SamePlane[i].normal *= -1;
             }
             c += SamePlane[i].centroid;
             n += SamePlane[i].normal;
         }
+
 
         double ScaleDis = MaxPointsDis(RefPlanePoint);
         // std::cout << ScaleDis << std::endl;
@@ -391,17 +395,6 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         }
     }
 
-    // Erase same point
-
-    // std::cout <<  << std::endl;
-    // for(size_t i = 0; i < ReferencePlanePoints.size(); i++){
-        
-    //     std::set<Eigen::Vector3d> set_ReferencePlanePoints(ReferencePlanePoints[i].begin(), ReferencePlanePoints[i].end());
-    //     // ReferencePlanePoints
-    // }
-
-
-    std::cout << "Total Merged Plane Num : " << MergedPlane.size() << std::endl; 
     return MergedPlane;
         
 }
@@ -425,8 +418,10 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
         for(size_t i = 0; i < plane->size(); i++){
             
             // Normal
+            // Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(InputPlane.normal, (*plane)[i].normal);
+            // float angle = 2 * std::atan2(q.vec().norm(), std::fabs(q.w())) * ( 180 / M_PI );
             double CrossNorm = InputPlane.normal.cross((*plane)[i].normal).norm(); 
-            // std::cout << CrossNorm << std::endl;
+            // std::cout << angle << std::endl;
             
             // Distance between Plane and Point(centroid)
             double PointToPlane = Point2PlaneDistance(InputPlane, (*plane)[i].centroid);
@@ -481,6 +476,7 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
     return MergedPlane;
 }
 
+
 void MergedOverlappedPlane(std::vector<Plane> *plane)
 {
     std::vector<Plane> copy_plane(*plane);
@@ -488,39 +484,45 @@ void MergedOverlappedPlane(std::vector<Plane> *plane)
     std::vector<std::vector<Eigen::Vector3d>> RefPlanePoints(ReferencePlanePoints);
     ReferencePlanePoints.clear();
     
-    Plane InputPlane(copy_plane.front());
-    copy_plane.erase(copy_plane.begin());
-    std::vector<Eigen::Vector3d> RefPlanePoint(RefPlanePoints.front());
-    RefPlanePoints.erase(RefPlanePoints.begin());
+    Plane InputPlane;
+    std::vector<Eigen::Vector3d> RefPlanePoint;
     
 
     while(copy_plane.size()){
         
         std::vector<Plane> SamePlanes;
         std::vector<int> SamePlanesInd;
+        
+        InputPlane = copy_plane.front();
+        copy_plane.erase(copy_plane.begin());
+
+        RefPlanePoint = RefPlanePoints.front();
+        RefPlanePoints.erase(RefPlanePoints.begin());
+        
         SamePlanes.push_back(InputPlane);
         bool IsSamePlane = false;
         
         for(size_t i = 0; i < copy_plane.size(); i++){
 
             // Normal
-            double CrossNorm = InputPlane.normal.cross(copy_plane[i].normal).norm(); 
-            
+            // double CrossNorm = InputPlane.normal.cross(copy_plane[i].normal).norm(); 
+            float angle = AngleBetweenPlane(InputPlane, copy_plane[i]);
             // Distance between Plane and Point(centroid)
             double PointToPlane = Point2PlaneDistance(InputPlane, copy_plane[i].centroid);
             
             // Distance between centroid
             double PointToPoint = PointDistance(InputPlane.centroid, copy_plane[i].centroid);
             
-            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+            if((angle < 2.0 || angle > 178.0)){
                 
                 // Calculate Overlap Ratio
+                // std::cout << "Overlap Ratio " << std::endl;
                 double Ratio = OverlapRatio(RefPlanePoint, RefPlanePoints[i]);
                 if(Ratio > OverlapRatiothres){
+                    std::cout << "success overlap" <<std::endl;
                     SamePlanes.push_back(copy_plane[i]);
                     SamePlanesInd.push_back(i);
                     IsSamePlane = true;
-                    std::cout << Ratio << std::endl;
                 }
             }
         }
@@ -528,29 +530,30 @@ void MergedOverlappedPlane(std::vector<Plane> *plane)
         if(IsSamePlane){
             
             // input biggest size of SamePlanes
-            plane->push_back(InputPlane);
+            size_t MaxSize = RefPlanePoint.size();
+            int ind = -1;
+            for(auto i : SamePlanesInd){
+                
+                if(MaxSize < RefPlanePoints[i].size()){
+
+                    MaxSize = RefPlanePoints[i].size();
+                    ind = i;
+                }
+            }    
+            if(ind == -1) plane->push_back(InputPlane);
+            else plane->push_back(copy_plane[ind]);
+            
             int EraseInd = 0;
             for(auto i : SamePlanesInd){
                 copy_plane.erase(copy_plane.begin() + i - EraseInd);
                 RefPlanePoints.erase(RefPlanePoints.begin() + i - EraseInd);
                 EraseInd++;
             }
-            
-            InputPlane = copy_plane.front();
-            copy_plane.erase(copy_plane.begin());
 
-            RefPlanePoint = RefPlanePoints.front();
-            RefPlanePoints.erase(RefPlanePoints.begin());
         }
         else{
-            
             plane->push_back(InputPlane);
-            
-            InputPlane = copy_plane.front();
-            copy_plane.erase(copy_plane.begin());
-            
-            RefPlanePoint = RefPlanePoints.front();
-            RefPlanePoints.erase(RefPlanePoints.begin());
+
         }
             
     }
@@ -1064,10 +1067,13 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // Select Plane
     ReferencePlanePoints.clear();
     std::vector<Plane> plane = SelectPlane(surfPointsFlat);
-    // PublishPlane(VisualPlane_, plane);
-    // PublishPlaneNormal(VisualArrow_, plane);    
+    std::cout << "Selected Plane Num : " << plane.size() << std::endl; 
+
     std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
+    std::cout << "Merged Plane Num : " << MergedPlane.size() << std::endl; 
+    
     MergedOverlappedPlane(&MergedPlane);
+    std::cout << "MergedOverlap Plane Num : " << MergedPlane.size() << std::endl;
 
     // Visualize Reference Plane Points
     std::vector<Eigen::Vector3d> VisualRefPlanePoints;

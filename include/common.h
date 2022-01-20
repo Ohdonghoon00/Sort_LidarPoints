@@ -71,6 +71,7 @@ struct Plane
     Eigen::Vector3d centroid;
     double scale = 2.0;
     int id;
+    
 };
 
 void FeatureToMsg(  sort_lidarpoints::feature_info &msg, 
@@ -379,4 +380,9 @@ double Point2PlaneDistance(Plane p, Eigen::Vector3d x)
 {
     Eigen::Vector3d b = x - p.centroid;
     return std::abs(p.normal.dot(b)) / p.normal.norm();
+}
+
+float AngleBetweenPlane(Plane p1, Plane p2){
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(p1.normal, p2.normal);
+    return 2 * std::atan2(q.vec().norm(), std::fabs(q.w())) * ( 180 / M_PI );
 }

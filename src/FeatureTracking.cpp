@@ -35,7 +35,7 @@ std::string LidarFrame = "/camera_init";
 //////////// Parameter ////////////
 
 // plane
-double PlaneCentroidDisThres = 3.0;
+double PlaneCentroidDisThres = 4.0;
 
 // line
 double LineToLineDisThres = 0.0;
@@ -85,10 +85,18 @@ int FindSamePlane(Plane &curr_plane, const std::vector<Plane> last_plane)
     int plane_id = 0;
     for(auto i : last_plane){
         
-        double Dis = PointDistance(curr_plane.centroid, i.centroid);
-        if(Mindis > Dis){
-            Mindis = Dis;
-            plane_id = i.id;
+        // Angle between two normal
+        float angle = AngleBetweenPlane(i, curr_plane);
+        // std::cout << angle << std::endl;
+        if(angle < 2.0 || angle > 178.0){
+
+            // Distance to centroid between two plane
+            double Dis = PointDistance(curr_plane.centroid, i.centroid);
+        
+            if(Mindis > Dis){
+                Mindis = Dis;
+                plane_id = i.id;
+            }
         }
     }
         
