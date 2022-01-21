@@ -48,7 +48,9 @@
 #include "sort_lidarpoints/feature_info.h"
 
 
-
+typedef Eigen::Matrix<float, 6, 1> Vector6f;
+typedef Eigen::Matrix<double, 6, 1> Vector6d;
+std::string LidarFrame = "/camera_init";
 struct Line;
 struct Plane;
 sensor_msgs::PointCloud2 ConverToROSmsg(const std::vector<Eigen::Vector3d> &PointCloud);
@@ -81,25 +83,25 @@ void FeatureToMsg(  sort_lidarpoints::feature_info &msg,
     // Line information
     for(size_t i = 0; i < line.size(); i++){
         
-        msg.p1[3 * i]     = line[i].p1.x();
-        msg.p1[3 * i + 1] = line[i].p1.y();
-        msg.p1[3 * i + 2] = line[i].p1.z();
+        msg.p1_x[i] = line[i].p1.x();
+        msg.p1_y[i] = line[i].p1.y();
+        msg.p1_z[i] = line[i].p1.z();
 
-        msg.p2[3 * i]     = line[i].p2.x();
-        msg.p2[3 * i + 1] = line[i].p2.y();
-        msg.p2[3 * i + 2] = line[i].p2.z();
+        msg.p2_x[i] = line[i].p2.x();
+        msg.p2_y[i] = line[i].p2.y();
+        msg.p2_z[i] = line[i].p2.z();
     }
 
     // Plane information
     for(size_t i = 0; i < plane.size(); i++){
         
-        msg.normal[3 * i]     = plane[i].normal.x();
-        msg.normal[3 * i + 1] = plane[i].normal.y();
-        msg.normal[3 * i + 2] = plane[i].normal.z();
+        msg.normal_x[i] = plane[i].normal.x();
+        msg.normal_y[i] = plane[i].normal.y();
+        msg.normal_z[i] = plane[i].normal.z();
 
-        msg.centroid[3 * i]     = plane[i].centroid.x();
-        msg.centroid[3 * i + 1] = plane[i].centroid.y();
-        msg.centroid[3 * i + 2] = plane[i].centroid.z();
+        msg.centroid_x[i] = plane[i].centroid.x();
+        msg.centroid_y[i] = plane[i].centroid.y();
+        msg.centroid_z[i] = plane[i].centroid.z();
 
         msg.scale[i] = plane[i].scale;
     }
@@ -109,27 +111,27 @@ void MsgToFeature(  const sort_lidarpoints::feature_infoConstPtr &FeatureMsg,
                     std::vector<Line> &line, std::vector<Plane> &plane)
 {
     // Line Information
-    for(size_t i = 0; i < (FeatureMsg->p1.size() / 3); i++){
+    for(size_t i = 0; i < (FeatureMsg->p1_x.size() / 3); i++){
         
-        line[i].p1.x() = FeatureMsg->p1[3 * i];
-        line[i].p1.y() = FeatureMsg->p1[3 * i + 1];
-        line[i].p1.z() = FeatureMsg->p1[3 * i + 2];
+        line[i].p1.x() = FeatureMsg->p1_x[i];
+        line[i].p1.y() = FeatureMsg->p1_y[i];
+        line[i].p1.z() = FeatureMsg->p1_z[i];
 
-        line[i].p2.x() = FeatureMsg->p2[3 * i];
-        line[i].p2.y() = FeatureMsg->p2[3 * i + 1];
-        line[i].p2.z() = FeatureMsg->p2[3 * i + 2];
+        line[i].p2.x() = FeatureMsg->p2_x[i];
+        line[i].p2.y() = FeatureMsg->p2_y[i];
+        line[i].p2.z() = FeatureMsg->p2_z[i];
     }
 
     // Plane Information
-    for(size_t i = 0; i < (FeatureMsg->normal.size() / 3); i++){
+    for(size_t i = 0; i < (FeatureMsg->normal_x.size() / 3); i++){
 
-        plane[i].normal.x() = FeatureMsg->normal[3 * i];
-        plane[i].normal.y() = FeatureMsg->normal[3 * i + 1];
-        plane[i].normal.z() = FeatureMsg->normal[3 * i + 2];
+        plane[i].normal.x() = FeatureMsg->normal_x[i];
+        plane[i].normal.y() = FeatureMsg->normal_y[i];
+        plane[i].normal.z() = FeatureMsg->normal_z[i];
 
-        plane[i].centroid.x() = FeatureMsg->centroid[3 * i];
-        plane[i].centroid.y() = FeatureMsg->centroid[3 * i + 1];
-        plane[i].centroid.z() = FeatureMsg->centroid[3 * i + 2];
+        plane[i].centroid.x() = FeatureMsg->centroid_x[i];
+        plane[i].centroid.y() = FeatureMsg->centroid_y[i];
+        plane[i].centroid.z() = FeatureMsg->centroid_z[i];
 
         plane[i].scale = FeatureMsg->scale[i];
     }
@@ -140,10 +142,21 @@ void PublishFeature(const ros::Publisher &publisher, const std::vector<Line> lin
     sort_lidarpoints::feature_info pubmsg;
     
     // memory
-    pubmsg.p1.assign(line.size() * 3, 0);
-    pubmsg.p2.assign(line.size() * 3, 0);
-    pubmsg.normal.assign(plane.size() * 3, 0);
-    pubmsg.centroid.assign(plane.size() * 3, 0);
+    // Line
+    pubmsg.p1_x.assign(line.size(), 0);
+    pubmsg.p1_y.assign(line.size(), 0);
+    pubmsg.p1_z.assign(line.size(), 0);
+    pubmsg.p2_x.assign(line.size(), 0);
+    pubmsg.p2_y.assign(line.size(), 0);
+    pubmsg.p2_z.assign(line.size(), 0);
+    
+    // Plane
+    pubmsg.normal_x.assign(plane.size(), 0);
+    pubmsg.normal_y.assign(plane.size(), 0);
+    pubmsg.normal_z.assign(plane.size(), 0);
+    pubmsg.centroid_x.assign(plane.size(), 0);
+    pubmsg.centroid_y.assign(plane.size(), 0);
+    pubmsg.centroid_z.assign(plane.size(), 0);
     pubmsg.scale.assign(plane.size(), 0);
     
     FeatureToMsg(pubmsg, line, plane);
@@ -154,6 +167,27 @@ void PublishFeature(const ros::Publisher &publisher, const std::vector<Line> lin
     publisher.publish(pubmsg);    
 }
 
+void IMUdataToMsg(sort_lidarpoints::feature_info &msg, const Vector6f IMUdata)
+{
+    msg.gyro_rx = IMUdata[0];
+    msg.gyro_ry = IMUdata[1];
+    msg.gyro_rz = IMUdata[2];
+    msg.gyro_x = IMUdata[3];
+    msg.gyro_y = IMUdata[4];
+    msg.gyro_z = IMUdata[5];
+}
+
+void PublishIMUandcloud(const ros::Publisher & publisher, std::vector<Eigen::Vector3d> Points, const Vector6f IMUdata, const ros::Time &timestamp, const std::string &frameid )
+{
+    sort_lidarpoints::feature_info pubmsg;
+
+    IMUdataToMsg(pubmsg, IMUdata);
+    output = ConverToROSmsg(PublishPoints);
+    pubmsg.header.stamp = timestamp;
+    pubmsg.header.frame_id = frameid;
+
+    publisher.publish(pubmsg);
+}
 
 
 void PublishPointCloud(const ros::Publisher &publisher, const std::vector<Eigen::Vector3d> &pointclouds, const ros::Time &timestamp, const std::string &frameid)

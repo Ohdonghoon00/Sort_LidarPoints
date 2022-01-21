@@ -51,19 +51,22 @@ include_directories(
 )
 
 catkin_package(
-  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
-  DEPENDS EIGEN3 visualization_msgs sensor_msgs
+  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs sensor_msgs visualization_msgs
+  DEPENDS EIGEN3  
   INCLUDE_DIRS include
 )
 
 
 add_executable(ascanRegistration src/scanRegistration.cpp)
+add_dependencies(ascanRegistration ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 add_executable(aFeatureTracking src/FeatureTracking.cpp)
+add_dependencies(aFeatureTracking ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(aFeatureTracking ${catkin_LIBRARIES}  ${OpenCV_LIBS})
 
 add_executable(PublishLidarData2 src/PublishLidarData2.cpp)
+add_dependencies(PublishLidarData2 ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(PublishLidarData2 glog ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 

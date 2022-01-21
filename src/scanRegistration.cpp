@@ -35,21 +35,21 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include <boost/smart_ptr.hpp>
-#include <Eigen/Core>
-#include <Eigen/Geometry>
-#include <Eigen/Dense>
-#include <Eigen/SVD>
 #include <cmath>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <set>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <Eigen/Dense>
+#include <Eigen/SVD>
 
 #include "common.h"
 #include "tic_toc.h"
 #include "sort_lidarpoints/feature_info.h"
 
-
+std_msgs::Header header;
 const int systemDelay = 0; 
 int systemInitCount = 0;
 bool systemInited = false;
@@ -89,15 +89,15 @@ ros::Publisher pubSurfPointsFlat;
 ros::Publisher pubSurfPointsLessFlat;
 ros::Publisher pubReferencePlanePoints;
 
-// publish Line and Plane
+// subscribe imu data and publish Line and Plane
 ros::Publisher pubFeature;
-
+ros::Subscriber subFeature;
 
 float VerticalAngelRatio = 0;
 Eigen::Vector3d Origin{0.0, 0.0, 0.0};
 Eigen::Vector3d ZVec = Eigen::Vector3d::UnitZ();
 Eigen::Matrix3d Iden = Eigen::Matrix3d::Identity();
-std::string LidarFrame = "/camera_init";
+
 
 const size_t kMaxNumberOfPoints = 1e5;
 
@@ -113,11 +113,11 @@ double PointToLineThres = 0.1;
 // Plane
 Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2); // downsizefiltering to plane points
 double SearchPlanePointDis = 2.0; // (m)
-double PointToPlaneThres = 0.02;
-double SuccessPlanePointRatioThres = 0.8; // 80%
+double PointToPlaneThres = 0.03;
+double SuccessPlanePointRatioThres = 0.7; // 80%
 // clustering plane
 double PointToPointThres = 6.0;
-double OverlapRatiothres = 0.7;
+double OverlapRatiothres = 0.6;
 
 double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
 {
@@ -149,7 +149,7 @@ double OverlapRatio(const std::vector<Eigen::Vector3d> InputRefPoints,
         }
     }
     double Ratio = (double)cnt / (double)TotalSize;
-    std::cout << "Ratio : " << Ratio << std::endl;
+    // std::cout << "Ratio : " << Ratio << std::endl;
     return Ratio;
 }
 
@@ -331,9 +331,9 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
         for(size_t i = InputPlane + 1; i < plane->size(); i++){
             
             // Normal
-            double CrossNorm = ((*plane)[InputPlane].normal).cross((*plane)[i].normal).norm(); 
-            // std::cout << CrossNorm << std::endl;
-            
+            // double CrossNorm = ((*plane)[InputPlane].normal).cross((*plane)[i].normal).norm(); 
+            // Angle between normal
+            float angle = AngleBetweenPlane((*plane)[InputPlane], (*plane)[i]);
             // Distance between Plane and Point(centroid)
             double PointToPlane = Point2PlaneDistance((*plane)[InputPlane], (*plane)[i].centroid);
             // std::cout << PointToPlane << std::endl; 
@@ -341,7 +341,12 @@ std::vector<Plane> ClusteringPlane(std::vector<Plane> *plane)
             // Distance between centroid
             double PointToPoint = PointDistance((*plane)[InputPlane].centroid, (*plane)[i].centroid);
             // std::cout << PointToPoint << std::endl;
-            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+
+            // Overlap Ratio
+            double Ratio = OverlapRatio(RefPlanePoints[InputPlane], RefPlanePoints[i]);
+            // std::cout << "Ratio : " << Ratio << std::endl;
+            if((angle < 2.0 || angle > 178) && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
+                // && PointToPoint < PointToPointThres && Ratio > 0.01
                 // std::cout << "cross norm value : " << CrossNorm << std::endl;
                 // std::cout << "centroid and plane distance : " << PointToPlane << std::endl;
                 // std::cout << "distance between Centroids: " << PointToPoint << std::endl;
@@ -418,9 +423,9 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
         for(size_t i = 0; i < plane->size(); i++){
             
             // Normal
-            // Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(InputPlane.normal, (*plane)[i].normal);
-            // float angle = 2 * std::atan2(q.vec().norm(), std::fabs(q.w())) * ( 180 / M_PI );
-            double CrossNorm = InputPlane.normal.cross((*plane)[i].normal).norm(); 
+            // double CrossNorm = InputPlane.normal.cross((*plane)[i].normal).norm(); 
+            // Angle between normal
+            float angle = AngleBetweenPlane(InputPlane, (*plane)[i]);
             // std::cout << angle << std::endl;
             
             // Distance between Plane and Point(centroid)
@@ -431,8 +436,12 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
             double PointToPoint = PointDistance(InputPlane.centroid, (*plane)[i].centroid);
             // std::cout << PointToPoint << std::endl;
             
-            if(CrossNorm < 0.3 && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres){
-                
+            // Overlap Ratio
+            double Ratio = OverlapRatio(RefPlanePoint, RefPlanePoints[i]);
+            // std::cout << "Ratio : " << Ratio << std::endl;            
+            
+            if((angle < 2.0 || angle > 178) && PointToPlane < PointToPlaneThres && PointToPoint < PointToPointThres ){
+                // && PointToPoint < PointToPointThres && Ratio > 0.01
                 if(MinDis > PointToPoint){
                     MinDis = PointToPoint;
                     idx = i;
@@ -460,9 +469,13 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
             if(InputPlane.normal.dot((*plane)[idx].normal) < 0) InputPlane.normal *= -1;
             CurrMergePlane.normal = (InputPlane.normal + (*plane)[idx].normal) / 2;
             
-            // Visualize Plane Scale
-            for(auto i : RefPlanePoints[idx])
-                RefPlanePoint.push_back(i);
+            // Visualize Plane Scale and delete same point
+            for(auto i : RefPlanePoints[idx]){
+                auto it = std::find(RefPlanePoint.begin(), RefPlanePoint.end(), i);
+                if(it == RefPlanePoint.end())
+                    RefPlanePoint.push_back(i);
+            }
+
             
             plane->erase(plane->begin() + idx);
             RefPlanePoints.erase(RefPlanePoints.begin() + idx);
@@ -504,8 +517,8 @@ void MergedOverlappedPlane(std::vector<Plane> *plane)
         
         for(size_t i = 0; i < copy_plane.size(); i++){
 
-            // Normal
             // double CrossNorm = InputPlane.normal.cross(copy_plane[i].normal).norm(); 
+            // Angle between normal
             float angle = AngleBetweenPlane(InputPlane, copy_plane[i]);
             // Distance between Plane and Point(centroid)
             double PointToPlane = Point2PlaneDistance(InputPlane, copy_plane[i].centroid);
@@ -540,9 +553,14 @@ void MergedOverlappedPlane(std::vector<Plane> *plane)
                     ind = i;
                 }
             }    
-            if(ind == -1) plane->push_back(InputPlane);
-            else plane->push_back(copy_plane[ind]);
-            
+            if(ind == -1) {
+                plane->push_back(InputPlane);
+                ReferencePlanePoints.push_back(RefPlanePoint);
+            }
+            else {
+                plane->push_back(copy_plane[ind]);
+                ReferencePlanePoints.push_back(RefPlanePoints[ind]);
+            }
             int EraseInd = 0;
             for(auto i : SamePlanesInd){
                 copy_plane.erase(copy_plane.begin() + i - EraseInd);
@@ -553,7 +571,7 @@ void MergedOverlappedPlane(std::vector<Plane> *plane)
         }
         else{
             plane->push_back(InputPlane);
-
+            ReferencePlanePoints.push_back(RefPlanePoint);
         }
             
     }
@@ -1116,6 +1134,8 @@ int main(int argc, char **argv)
         return 0;
     }
     ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, laserCloudHandler);
+
+    // subFeature = nh.subscribe<sort_lidarpoints::feature_info>("/imu_gyro", 100, featureHandler);
 
     pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100);
 

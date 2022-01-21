@@ -30,7 +30,6 @@ std::vector<Plane> LastPlanes;
 int FrameNum = 0;
 int MaxLineId = 0;
 int MaxPlaneId = 0;
-std::string LidarFrame = "/camera_init";
 
 //////////// Parameter ////////////
 
@@ -73,7 +72,7 @@ void ConvertfromRosMsg( const sort_lidarpoints::feature_infoConstPtr &FeatureMsg
                     std::vector<Line> &line, std::vector<Plane> &plane)
 {
     // Memory
-    line.resize(FeatureMsg->p1.size() / 3);
+    line.resize(FeatureMsg->p1_x.size());
     plane.resize(FeatureMsg->scale.size());
     
     MsgToFeature(FeatureMsg, line, plane);

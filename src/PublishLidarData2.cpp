@@ -8,8 +8,8 @@
 #include <algorithm>
 #include <chrono>
 #include <sstream>
-#include "common.h"
 #include <boost/program_options.hpp>
+#include <glog/logging.h>
 
 #include <rosbag/bag.h>
 
@@ -22,12 +22,13 @@
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 
-#include <glog/logging.h>
+#include "common.h"
+#include "sort_lidarpoints/feature_info.h"
 
 
 
 ros::Publisher pubLaserCloud;
-
+ros::Publisher pubfeature;
 
 using namespace std;
 
@@ -76,6 +77,20 @@ Eigen::Matrix4f To44RT(std::vector<float> rot)
                 0,                 0,                   0,                  1;
 
     return RT;
+}
+
+Vector6f to6DOF(Eigen::Matrix4f RT)
+{
+    float data[] = {    RT(0, 0), RT(0, 1), RT(0, 2),
+                        RT(1, 0), RT(1, 1), RT(1, 2),
+                        RT(2, 0), RT(2, 1), RT(2, 2)};
+    cv::Mat rot(3, 3, CV_32FC1, data);
+    cv::Rodrigues(rot, rot);
+
+    Vector6f a;
+    a << rot.at<float>(0, 0), rot.at<float>(1, 0), rot.at<float>(2, 0), RT(0, 3), RT(1, 3), RT(2, 3);
+
+    return a;                          
 }
 
 Eigen::Matrix4f gyroToRotation(Eigen::Vector3f gyro)
@@ -147,7 +162,7 @@ Eigen::Vector3f ToAxis(Eigen::Matrix4f LidarRotation)
 
 }
 
-void MoveDistortionPoints(std::vector<Eigen::Vector3d> &points, Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
+void MoveDistortionPoints(std::vector<Eigen::Vector3d> &points, const Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
 {
     int PointNum = points.size();
     Eigen::MatrixXd MatrixPoints(4, PointNum);
@@ -226,6 +241,7 @@ int main(int argc, char **argv)
     }
     
     pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points", 2);
+    pubfeature = nh.advertise<sort_lidarpoints::feature_info>("/imu_cloud", 100);
 
     // publish delay
     ros::Rate r(10.0 / publish_delay);
@@ -415,7 +431,6 @@ int main(int argc, char **argv)
         }
             
         
-        
         // timestamp
         ros::Time timestamp_ros;
         timestamp_ros.fromNSec(lidar_data.timestamp_ns);
@@ -424,11 +439,15 @@ int main(int argc, char **argv)
         // publish
         sensor_msgs::PointCloud2 output;
         // pcl::toROSMsg(PublishPoints, output);
-        output = ConverToROSmsg(PublishPoints);
+        // output = ConverToROSmsg(PublishPoints);
         output.header.stamp = timestamp_ros;
         output.header.frame_id = "/camera_init";
         pubLaserCloud.publish(output);
 
+        // Publish IMU Gyro Data
+        Vector6f rt = to6DOF(LidarRotation);
+        PublishIMUandcloud(pubIMU, PublishPoints, rt, timestamp_ros, LidarFrame);
+        
         // bagfile
         if( to_bag ) bag.write("/velodyne_points", timestamp_ros, output);
 
