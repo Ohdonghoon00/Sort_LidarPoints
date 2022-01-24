@@ -94,10 +94,11 @@ ros::Publisher pubFeature;
 ros::Subscriber subFeature;
 
 float VerticalAngelRatio = 0;
-Eigen::Vector3d Origin{0.0, 0.0, 0.0};
+
 Eigen::Vector3d ZVec = Eigen::Vector3d::UnitZ();
 Eigen::Matrix3d Iden = Eigen::Matrix3d::Identity();
 
+sort_lidarpoints::feature_info FeatureInfo;
 
 const size_t kMaxNumberOfPoints = 1e5;
 
@@ -113,11 +114,11 @@ double PointToLineThres = 0.1;
 // Plane
 Eigen::Vector3d DownSizeLeafSize(0.2, 0.2, 0.2); // downsizefiltering to plane points
 double SearchPlanePointDis = 2.0; // (m)
-double PointToPlaneThres = 0.03;
-double SuccessPlanePointRatioThres = 0.7; // 80%
+double PointToPlaneThres = 0.02;
+double SuccessPlanePointRatioThres = 0.85; // 80%
 // clustering plane
 double PointToPointThres = 6.0;
-double OverlapRatiothres = 0.6;
+double OverlapRatiothres = 0.5;
 
 double MaxPointsDis(const std::vector<Eigen::Vector3d> RefPoints)
 {
@@ -289,7 +290,7 @@ std::vector<Plane> SelectPlane(const std::vector<Eigen::Vector3d> surfPointsFlat
     for(size_t i = 0; i < surfPointsFlat.size(); i++){
         
         std::vector<Eigen::Vector3d> ReferencePlanePoint = PlanePointsforPlane(surfPointsFlat[i]);
-        if(ReferencePlanePoint.size() < 30) continue;
+        if(ReferencePlanePoint.size() < 35) continue;
         // std::cout << "Total ReferencePlanePoint Num : " << ReferencePlanePoint.size() << std::endl;
         Plane plane_ = PlaneFromPoints(ReferencePlanePoint);
         
@@ -425,15 +426,15 @@ std::vector<Plane> ClusteringPlane2(std::vector<Plane> *plane)
             // Normal
             // double CrossNorm = InputPlane.normal.cross((*plane)[i].normal).norm(); 
             // Angle between normal
-            float angle = AngleBetweenPlane(InputPlane, (*plane)[i]);
+            float angle = AngleBetweenPlane(CurrMergePlane, (*plane)[i]);
             // std::cout << angle << std::endl;
             
             // Distance between Plane and Point(centroid)
-            double PointToPlane = Point2PlaneDistance(InputPlane, (*plane)[i].centroid);
+            double PointToPlane = Point2PlaneDistance(CurrMergePlane, (*plane)[i].centroid);
             // std::cout << PointToPlane << std::endl; 
             
             // Distance between centroid
-            double PointToPoint = PointDistance(InputPlane.centroid, (*plane)[i].centroid);
+            double PointToPoint = PointDistance(CurrMergePlane.centroid, (*plane)[i].centroid);
             // std::cout << PointToPoint << std::endl;
             
             // Overlap Ratio
@@ -970,7 +971,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
 
 
                     smallestPickedNum++;
-                    if (smallestPickedNum >= 4)
+                    if (smallestPickedNum >= 10)
                         break;
                     
 
@@ -1017,7 +1018,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
 
 
 
-void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
+void laserCloudHandler(const sort_lidarpoints::feature_infoConstPtr &laserCloudMsg)
 {
     if (!systemInited){ 
         systemInitCount++;
@@ -1031,7 +1032,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     TicToc t_prepare;
     
     // Storage pointcloud from ROS msg        
-    std::vector<Eigen::Vector3d> laserPoints = ConvertFromROSmsg(laserCloudMsg);
+    FeatureInfo = *laserCloudMsg; 
+    std::vector<Eigen::Vector3d> laserPoints = ConvertFromROSmsg(FeatureInfo.cloud_undistortion);
     
     // Remove useless points
     RemoveClosedPointCloud(&laserPoints);
@@ -1087,11 +1089,11 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     std::vector<Plane> plane = SelectPlane(surfPointsFlat);
     std::cout << "Selected Plane Num : " << plane.size() << std::endl; 
 
-    std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
+    std::vector<Plane> MergedPlane = ClusteringPlane2(&plane);
     std::cout << "Merged Plane Num : " << MergedPlane.size() << std::endl; 
     
-    MergedOverlappedPlane(&MergedPlane);
-    std::cout << "MergedOverlap Plane Num : " << MergedPlane.size() << std::endl;
+    // MergedOverlappedPlane(&MergedPlane);
+    // std::cout << "MergedOverlap Plane Num : " << MergedPlane.size() << std::endl;
 
     // Visualize Reference Plane Points
     std::vector<Eigen::Vector3d> VisualRefPlanePoints;
@@ -1112,7 +1114,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     PublishPointCloud(pubReferencePlanePoints, VisualRefPlanePoints, laserCloudMsg->header.stamp, LidarFrame);
 
     // Publish Line and Plane
-    PublishFeature(pubFeature, line, MergedPlane, laserCloudMsg->header.stamp, LidarFrame);
+    PublishFeature(pubFeature, FeatureInfo, line, MergedPlane, laserCloudMsg->header.stamp, LidarFrame);
 
     printf("scan registration time %f ms *************\n", t_whole.toc());
     if(t_whole.toc() > 100)
@@ -1133,9 +1135,9 @@ int main(int argc, char **argv)
         //printf("only support velodyne with 16, 32 or 64 scan line!");
         return 0;
     }
-    ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, laserCloudHandler);
+    // ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, laserCloudHandler);
 
-    // subFeature = nh.subscribe<sort_lidarpoints::feature_info>("/imu_gyro", 100, featureHandler);
+    subFeature = nh.subscribe<sort_lidarpoints::feature_info>("/velodyne_points", 100, laserCloudHandler);
 
     pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100);
 

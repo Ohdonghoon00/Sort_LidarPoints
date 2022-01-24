@@ -8,15 +8,19 @@
 #include <string>
 #include <algorithm>
 
+
+
 #include "common.h"
 #include "tic_toc.h"
 #include "sort_lidarpoints/feature_info.h"
 
+sort_lidarpoints::feature_info FeatureInfo;
 
 ros::Subscriber subFeature;
 
 rviz_visual_tools::RvizVisualToolsPtr VisualLine;
 rviz_visual_tools::RvizVisualToolsPtr VisualPlane;
+rviz_visual_tools::RvizVisualToolsPtr VisualPlane2;
 rviz_visual_tools::RvizVisualToolsPtr VisualArrow;
 
 // Total Feature info
@@ -34,7 +38,7 @@ int MaxPlaneId = 0;
 //////////// Parameter ////////////
 
 // plane
-double PlaneCentroidDisThres = 4.0;
+double PlaneCentroidDisThres = 6.0;
 
 // line
 double LineToLineDisThres = 0.0;
@@ -65,9 +69,8 @@ void CopyNewFeature(const std::vector<Line> curr_line, const std::vector<Plane> 
     LastLines.assign(curr_line.begin(), curr_line.end());
     LastPlanes.assign(curr_plane.begin(), curr_plane.end());
 
-    FrameNum++;
+    FrameNum++;   
 }
-
 void ConvertfromRosMsg( const sort_lidarpoints::feature_infoConstPtr &FeatureMsg,
                     std::vector<Line> &line, std::vector<Plane> &plane)
 {
@@ -77,6 +80,71 @@ void ConvertfromRosMsg( const sort_lidarpoints::feature_infoConstPtr &FeatureMsg
     
     MsgToFeature(FeatureMsg, line, plane);
 }
+
+void MsgToFeatureInfo(const sort_lidarpoints::feature_info FeatureInfo, Vector6f *IMUdata)
+{
+    *IMUdata <<  FeatureInfo.gyro_rx,
+                FeatureInfo.gyro_ry,
+                FeatureInfo.gyro_rz,
+                FeatureInfo.gyro_x,
+                FeatureInfo.gyro_y,
+                FeatureInfo.gyro_z;
+    
+}
+
+void MovePlane(const Eigen::Matrix4f LidarRotation, std::vector<Plane>* last_plane)
+{
+    int PlaneNum = last_plane->size();
+    Eigen::MatrixXd MatrixPoints(4, PlaneNum * 2);
+    for(int i = 0; i < PlaneNum; i++){
+        MatrixPoints(0, 2*i) = (*last_plane)[i].centroid.x();
+        MatrixPoints(1, 2*i) = (*last_plane)[i].centroid.y();
+        MatrixPoints(2, 2*i) = (*last_plane)[i].centroid.z();
+        MatrixPoints(3, 2*i) = 1.0;
+
+        MatrixPoints(0, 2*i + 1) = (*last_plane)[i].normal.x();
+        MatrixPoints(1, 2*i + 1) = (*last_plane)[i].normal.y();
+        MatrixPoints(2, 2*i + 1) = (*last_plane)[i].normal.z();
+        MatrixPoints(3, 2*i + 1) = 1.0;
+    }
+
+    float angle = ToAngle(LidarRotation);
+    Eigen::Vector3f Axis = ToAxis(LidarRotation);   
+    Axis = Axis * angle;
+
+    double data[] = {(double)Axis(0, 0), (double)Axis(1, 0), (double)Axis(2, 0)};
+    cv::Mat R(3, 1, CV_64FC1, data);
+    cv::Rodrigues(R, R);
+
+    Eigen::Matrix4d RT;
+    RT <<   R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), LidarRotation(0, 3),
+            R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), LidarRotation(1, 3),
+            R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), LidarRotation(2, 3),
+            0,                  0,                  0,              1;
+
+    Eigen::Matrix4Xd MatrixPoints_ = RT.inverse() * MatrixPoints;
+
+    for(int i = 0; i < PlaneNum; i++){
+        
+        (*last_plane)[i].centroid.x() = MatrixPoints_(0, 2 * i);
+        (*last_plane)[i].centroid.y() = MatrixPoints_(1, 2 * i);
+        (*last_plane)[i].centroid.z() = MatrixPoints_(2, 2 * i);
+
+        (*last_plane)[i].normal.x() = MatrixPoints_(0, 2 * i + 1);
+        (*last_plane)[i].normal.y() = MatrixPoints_(1, 2 * i + 1);
+        (*last_plane)[i].normal.z() = MatrixPoints_(2, 2 * i + 1);
+    }    
+}
+
+void MovePlaneUsingIMUdata(const sort_lidarpoints::feature_info FeatureInfo, std::vector<Plane> *last_plane)
+{
+    Vector6f IMUdata;
+    MsgToFeatureInfo(FeatureInfo, &IMUdata);
+    Eigen::Matrix4f LidarRotation = To44RT(IMUdata);
+    MovePlane(LidarRotation, last_plane);
+    
+}
+
 
 int FindSamePlane(Plane &curr_plane, const std::vector<Plane> last_plane)
 {
@@ -173,28 +241,38 @@ void featureHandler(const sort_lidarpoints::feature_infoConstPtr &FeatureMsg)
     std::vector<Plane> NewPlanes;
 
     // Convert from ROS Msg
+    FeatureInfo = *FeatureMsg;
     ConvertfromRosMsg(FeatureMsg, NewLines, NewPlanes);
-    
+    std::cout << " feature info : " << FeatureInfo.gyro_x << std::endl;
+
     // Initial Id
     if(FrameNum == 0)
         Initialization(NewLines, NewPlanes);
-
-    // Tracking
-    PlaneCorrespondance(LastPlanes, NewPlanes);
-    LineCorrespondance(LastLines, NewLines);
-
-    for(auto i : NewPlanes){
-        std::cout << i.id << " ";
+    else{
+        // Tracking
+        // IMU Rotation data
+        // VisualizePlane(VisualPlane, LastPlanes);
+        MovePlaneUsingIMUdata(FeatureInfo, &LastPlanes);
+        
+        
+        PlaneCorrespondance(LastPlanes, NewPlanes);
+        LineCorrespondance(LastLines, NewLines);
     }
-    std::cout << std::endl;
-    
-    // Visual Feature
-    VisualizeLine(VisualLine, NewLines);
-    VisualizePlane(VisualPlane, NewPlanes);
-    VisualizePlaneNormal(VisualArrow, NewPlanes);
 
-    // Prepare Next Frame
-    CopyNewFeature(NewLines, NewPlanes);
+        for(auto i : NewPlanes){
+            std::cout << i.id << " ";
+        }
+        std::cout << std::endl;
+        
+        // Visual Feature
+        VisualizeLine(VisualLine, NewLines);
+        VisualizePlane(VisualPlane, NewPlanes);
+        // VisualizePlane(VisualPlane2, LastPlanes);
+        VisualizePlaneNormal(VisualArrow, NewPlanes);
+
+        // Prepare Next Frame
+        CopyNewFeature(NewLines, NewPlanes);
+
 }
 
 int main(int argc, char **argv)
@@ -214,6 +292,8 @@ int main(int argc, char **argv)
     VisualPlane.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane"));
     VisualPlane->loadMarkerPub();
 
+    VisualPlane2.reset(new rviz_visual_tools::RvizVisualTools( LidarFrame, "/plane2"));
+    VisualPlane2->loadMarkerPub();
 
     ros::spin();
 

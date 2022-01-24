@@ -60,24 +60,8 @@ struct LidarData
 
 };
 
-Eigen::Matrix4f To44RT(std::vector<float> rot)
-{
 
-    cv::Mat R( 1, 3, CV_32FC1);
-    R.at<float>(0, 0) = rot[0];
-    R.at<float>(0, 1) = rot[1];
-    R.at<float>(0, 2) = rot[2];
 
-    cv::Rodrigues(R, R);
-
-    Eigen::Matrix4f RT;
-    RT << R.at<float>(0, 0), R.at<float>(0, 1), R.at<float>(0, 2), rot[3],
-                R.at<float>(1, 0), R.at<float>(1, 1), R.at<float>(1, 2), rot[4],
-                R.at<float>(2, 0), R.at<float>(2, 1), R.at<float>(2, 2), rot[5],
-                0,                 0,                   0,                  1;
-
-    return RT;
-}
 
 Vector6f to6DOF(Eigen::Matrix4f RT)
 {
@@ -127,40 +111,7 @@ Eigen::Matrix4f gyroToRotation(Eigen::Vector3f gyro)
     return RT;
 }
 
-float ToAngle(Eigen::Matrix4f LidarRotation)
-{
-    float data[] = {    LidarRotation(0, 0), LidarRotation(0, 1), LidarRotation(0, 2),
-                        LidarRotation(1, 0), LidarRotation(1, 1), LidarRotation(1, 2),
-                        LidarRotation(2, 0), LidarRotation(2, 1), LidarRotation(2, 2)};
 
-    
-    cv::Mat rot(3, 3, CV_32FC1, data);
-    cv::Rodrigues(rot, rot);
-    float angle = sqrt( rot.at<float>(0, 0) * rot.at<float>(0, 0) + 
-                        rot.at<float>(1, 0) * rot.at<float>(1, 0) +
-                        rot.at<float>(2, 0) * rot.at<float>(2, 0) );
-
-    return angle;
-}
-
-Eigen::Vector3f ToAxis(Eigen::Matrix4f LidarRotation)
-{
-    float angle = ToAngle(LidarRotation);
-    float data[] = {    LidarRotation(0, 0), LidarRotation(0, 1), LidarRotation(0, 2),
-                        LidarRotation(1, 0), LidarRotation(1, 1), LidarRotation(1, 2),
-                        LidarRotation(2, 0), LidarRotation(2, 1), LidarRotation(2, 2)};
-
-    
-    cv::Mat rot(3, 3, CV_32FC1, data);
-    cv::Rodrigues(rot, rot);
-
-    Eigen::Vector3f Axis;
-    Axis << rot.at<float>(0, 0), rot.at<float>(1, 0), rot.at<float>(2, 0);
-    Axis = Axis / angle;
-
-    return Axis;
-
-}
 
 void MoveDistortionPoints(std::vector<Eigen::Vector3d> &points, const Eigen::Matrix4f LidarRotation, int ScanStepNum, int num_seqs)
 {
@@ -184,9 +135,9 @@ void MoveDistortionPoints(std::vector<Eigen::Vector3d> &points, const Eigen::Mat
     cv::Rodrigues(R, R);
 
     Eigen::Matrix4d RT;
-    RT <<   R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), 0,
-            R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), 0,
-            R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), 0,
+    RT <<   R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), LidarRotation(0, 3),
+            R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), LidarRotation(1, 3),
+            R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), LidarRotation(2, 3),
             0,                  0,                  0,              1;
 
 
@@ -224,8 +175,8 @@ int main(int argc, char **argv)
 
 
     // Extrinsic parameter rig - imu / rig - lidar
-    const Eigen::Matrix4f RigToIMU = To44RT(imu2rig_pose);
-    const Eigen::Matrix4f RigToLidar = To44RT(lidar2rig_pose);
+    const Eigen::Matrix4f IMUToRig = To44RT(imu2rig_pose);
+    const Eigen::Matrix4f LidarToRig = To44RT(lidar2rig_pose);
     
     
     
@@ -240,8 +191,8 @@ int main(int argc, char **argv)
         bag.open(data_dir + output_bag_file, rosbag::bagmode::Write);
     }
     
-    pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points", 2);
-    pubfeature = nh.advertise<sort_lidarpoints::feature_info>("/imu_cloud", 100);
+    // pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points", 2);
+    pubfeature = nh.advertise<sort_lidarpoints::feature_info>("/velodyne_points", 100);
 
     // publish delay
     ros::Rate r(10.0 / publish_delay);
@@ -379,8 +330,8 @@ int main(int argc, char **argv)
             IMUcount++;
         }
 
-        Eigen::Matrix4f RT_ = RigToIMU * IMURotation_integral * RigToIMU.inverse();
-        Eigen::Matrix4f RT = RigToLidar.inverse() * RT_ * RigToLidar;
+        Eigen::Matrix4f RT_ = IMUToRig * IMURotation_integral * IMUToRig.inverse();
+        Eigen::Matrix4f RT = LidarToRig.inverse() * RT_ * LidarToRig;
         LidarRotation = RT;
 
         for (int j = 0; j < num_seqs; j++){
@@ -440,14 +391,14 @@ int main(int argc, char **argv)
         sensor_msgs::PointCloud2 output;
         // pcl::toROSMsg(PublishPoints, output);
         // output = ConverToROSmsg(PublishPoints);
-        output.header.stamp = timestamp_ros;
-        output.header.frame_id = "/camera_init";
-        pubLaserCloud.publish(output);
+        // output.header.stamp = timestamp_ros;
+        // output.header.frame_id = "/camera_init";
+        // pubLaserCloud.publish(output);
 
         // Publish IMU Gyro Data
         Vector6f rt = to6DOF(LidarRotation);
-        PublishIMUandcloud(pubIMU, PublishPoints, rt, timestamp_ros, LidarFrame);
-        
+        PublishIMUandcloud(pubfeature, PublishPoints, rt, timestamp_ros, LidarFrame);
+
         // bagfile
         if( to_bag ) bag.write("/velodyne_points", timestamp_ros, output);
 
