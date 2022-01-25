@@ -971,7 +971,7 @@ void DividePointsByEdgeAndPlane(const std::vector<Eigen::Vector3d>& laserCloud, 
 
 
                     smallestPickedNum++;
-                    if (smallestPickedNum >= 10)
+                    if (smallestPickedNum >= 15)
                         break;
                     
 
@@ -1089,11 +1089,11 @@ void laserCloudHandler(const sort_lidarpoints::feature_infoConstPtr &laserCloudM
     std::vector<Plane> plane = SelectPlane(surfPointsFlat);
     std::cout << "Selected Plane Num : " << plane.size() << std::endl; 
 
-    std::vector<Plane> MergedPlane = ClusteringPlane2(&plane);
+    std::vector<Plane> MergedPlane = ClusteringPlane(&plane);
     std::cout << "Merged Plane Num : " << MergedPlane.size() << std::endl; 
     
-    // MergedOverlappedPlane(&MergedPlane);
-    // std::cout << "MergedOverlap Plane Num : " << MergedPlane.size() << std::endl;
+    MergedOverlappedPlane(&MergedPlane);
+    std::cout << "MergedOverlap Plane Num : " << MergedPlane.size() << std::endl;
 
     // Visualize Reference Plane Points
     std::vector<Eigen::Vector3d> VisualRefPlanePoints;
